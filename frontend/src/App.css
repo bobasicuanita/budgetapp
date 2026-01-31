@@ -1,0 +1,36 @@
+/* Disable default focus outline/ring */
+.p-inputtext:focus,
+.p-password input:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Custom hover styles for PrimeReact inputs */
+.input-hover-wrapper:hover .p-inputtext {
+  border-color: theme('colors.blue.8') !important;
+}
+
+.input-hover-wrapper .p-inputtext:focus {
+  border-color: theme('colors.blue.9') !important;
+}
+
+/* Password input wrapper hover */
+.input-hover-wrapper:hover .p-password input {
+  border-color: theme('colors.blue.8') !important;
+}
+
+.input-hover-wrapper .p-password input:focus {
+  border-color: theme('colors.blue.9') !important;
+}
+
+/* Override browser autofill styles - match default input appearance */
+.p-inputtext:-webkit-autofill,
+.p-inputtext:-webkit-autofill:hover,
+.p-inputtext:-webkit-autofill:focus,
+.p-password input:-webkit-autofill,
+.p-password input:-webkit-autofill:hover,
+.p-password input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px hsl(206, 30%, 98.8%) inset !important; /* slate-1 (card bg) */
+  -webkit-text-fill-color: currentColor !important; /* Use default text color */
+  transition: background-color 5000s ease-in-out 0s;
+}
