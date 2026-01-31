@@ -3,51 +3,70 @@ import { InputText } from 'primereact/inputtext';
 import { Password } from 'primereact/password';
 import { Button } from 'primereact/button';
 import { Ripple } from 'primereact/ripple';
-import { useState } from 'react';
+import { Toast } from 'primereact/toast';
+import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useMutation } from '@tanstack/react-query';
 import '../App.css';
 
 function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const toast = useRef(null);
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
-
-    try {
+  // Login mutation using React Query
+  const loginMutation = useMutation({
+    mutationFn: async (credentials) => {
       const response = await fetch('http://localhost:5000/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify(credentials)
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        setError(data.error);
-        setLoading(false);
-        return;
+        throw new Error(data.error || 'Login failed');
       }
 
+      return data;
+    },
+    onSuccess: (data) => {
       // Save token to localStorage
       localStorage.setItem('token', data.token);
       
-      // Redirect to dashboard
-      navigate('/dashboard');
-    } catch (err) {
-      console.error('Login error:', err);
-      setError('An error occurred. Please try again.');
-      setLoading(false);
+      // Show success message
+      toast.current.show({
+        severity: 'success',
+        summary: 'Success',
+        detail: 'Login successful!',
+        life: 2000
+      });
+      
+      // Redirect to dashboard after brief delay
+      setTimeout(() => navigate('/dashboard'), 500);
+    },
+    onError: (error) => {
+      // Show error toast
+      toast.current.show({
+        severity: 'error',
+        summary: 'Login Failed',
+        detail: error.message,
+        life: 5000
+      });
     }
+  });
+
+  const handleLogin = (e) => {
+    e.preventDefault();
+    loginMutation.mutate({ email, password });
   };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-2 p-4">
+      <Toast ref={toast} />
+      
       {/* Gradient border wrapper */}
       <div className="w-full max-w-md p-[4px] bg-gradient-to-b from-blue-9 via-blue-9/50 to-transparent rounded-[1.8rem]">
         <Card className="w-full bg-slate-1 rounded-3xl shadow-none"
@@ -69,11 +88,6 @@ function Login() {
           <p className="text-slate-11">
             Sign in to continue to Budget App
           </p>
-        </div>
-
-        {/* Error Message */}
-        <div className={`mb-4 p-3 bg-red-3 border border-red-7 rounded-md transition-all ${error ? 'block' : 'hidden'}`}>
-          <p className="text-red-11 text-sm">{error}</p>
         </div>
 
         {/* Form */}
@@ -146,9 +160,9 @@ function Login() {
           {/* Login Button */}
           <Button 
             type="submit"
-            label={loading ? "" : "Sign In"}
-            icon={loading ? "pi pi-spin pi-spinner" : ""}
-            disabled={loading}
+            label={loginMutation.isPending ? "" : "Sign In"}
+            icon={loginMutation.isPending ? "pi pi-spin pi-spinner" : ""}
+            disabled={loginMutation.isPending}
             className="w-full bg-blue-9 hover:bg-blue-10 border-0 text-white font-semibold py-3"
           />
         </form>
