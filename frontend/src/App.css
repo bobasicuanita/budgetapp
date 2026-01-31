@@ -5,6 +5,20 @@
   box-shadow: none !important;
 }
 
+/* Disable outline on password show/hide icon button */
+.p-password button:focus,
+.p-password button:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Disable outline on all buttons when focused */
+.p-button:focus,
+.p-button:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
 /* Custom hover styles for PrimeReact inputs */
 .input-hover-wrapper:hover .p-inputtext {
   border-color: theme('colors.blue.8') !important;
@@ -12,6 +26,7 @@
 
 .input-hover-wrapper .p-inputtext:focus {
   border-color: theme('colors.blue.9') !important;
+  background-color: white !important;
 }
 
 /* Password input wrapper hover */
@@ -21,6 +36,7 @@
 
 .input-hover-wrapper .p-password input:focus {
   border-color: theme('colors.blue.9') !important;
+  background-color: white !important;
 }
 
 /* Override browser autofill styles - match default input appearance */
@@ -30,7 +46,12 @@
 .p-password input:-webkit-autofill,
 .p-password input:-webkit-autofill:hover,
 .p-password input:-webkit-autofill:focus {
-  -webkit-box-shadow: 0 0 0 1000px hsl(206, 30%, 98.8%) inset !important; /* slate-1 (card bg) */
-  -webkit-text-fill-color: currentColor !important; /* Use default text color */
+  -webkit-box-shadow: 0 0 0 1000px hsl(206, 30%, 98.8%) inset !important; /* slate-1 */
+  -webkit-text-fill-color: hsl(206, 6%, 10%) !important; /* slate-12 - dark text */
+  font-size: 1rem !important;
+  font-weight: 400 !important;
+  letter-spacing: normal !important;
+  line-height: 1.5 !important;
+  font-family: inherit !important;
   transition: background-color 5000s ease-in-out 0s;
 }

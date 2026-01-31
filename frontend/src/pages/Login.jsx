@@ -47,19 +47,33 @@ function Login() {
   };
 
   return (
-<div className="min-h-screen flex items-center justify-center bg-slate-2 p-4">
-      <Card className="w-full max-w-md shadow-xl border border-slate-6 bg-slate-1">
+    <div className="min-h-screen flex items-center justify-center bg-slate-2 p-4">
+      {/* Gradient border wrapper */}
+      <div className="w-full max-w-md p-[4px] bg-gradient-to-b from-blue-9 via-blue-9/50 to-transparent rounded-[1.8rem]">
+        <Card className="w-full bg-slate-1 rounded-3xl shadow-none"
+        pt={{
+          root: { className: 'shadow-none' },
+          content: { 
+            className: "p-8"
+          }
+        }}
+      >
         {/* Header */}
         <div className="text-center mb-6">
           <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-9 rounded-full mb-4">
             <i className="pi pi-lock text-white text-2xl"></i>
           </div>
           <h1 className="text-3xl font-bold text-slate-12 mb-2">
-            Welcome Back
+            Budget App
           </h1>
           <p className="text-slate-11">
             Sign in to continue to Budget App
           </p>
+        </div>
+
+        {/* Error Message */}
+        <div className={`mb-4 p-3 bg-red-3 border border-red-7 rounded-md transition-all ${error ? 'block' : 'hidden'}`}>
+          <p className="text-red-11 text-sm">{error}</p>
         </div>
 
         {/* Form */}
@@ -75,6 +89,7 @@ function Login() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="Enter your email"
                 type="email"
+                required
                 className="w-full"
                 pt={{
                   root: { 
@@ -97,11 +112,18 @@ function Login() {
                 placeholder="Enter your password"
                 toggleMask
                 feedback={false}
+                required
                 className="w-full block"
                 pt={{
                   root: { className: 'w-full' },
                   input: { 
                     className: 'w-full px-4 py-3 bg-slate-1 transition-colors border border-slate-7 rounded-md' 
+                  },
+                  showIcon: { 
+                    className: 'focus:outline-none focus:ring-0 focus:shadow-none cursor-pointer text-slate-11 hover:text-slate-12' 
+                  },
+                  hideIcon: { 
+                    className: 'focus:outline-none focus:ring-0 focus:shadow-none cursor-pointer text-slate-11 hover:text-slate-12' 
                   }
                 }}
               />
@@ -115,7 +137,7 @@ function Login() {
               Remember me
               <Ripple />
             </label>
-            <a href="#" className="text-blue-11 hover:text-blue-12 p-2 rounded p-ripple relative inline-block">
+            <a href="/forgot-password" className="text-blue-11 hover:text-blue-12 p-2 rounded p-ripple relative inline-block">
               Forgot password?
               <Ripple />
             </a>
@@ -124,7 +146,9 @@ function Login() {
           {/* Login Button */}
           <Button 
             type="submit"
-            label="Sign In"
+            label={loading ? "" : "Sign In"}
+            icon={loading ? "pi pi-spin pi-spinner" : ""}
+            disabled={loading}
             className="w-full bg-blue-9 hover:bg-blue-10 border-0 text-white font-semibold py-3"
           />
         </form>
@@ -137,16 +161,20 @@ function Login() {
         </div>
 
         {/* Social Login */}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="flex justify-center gap-4">
           <Button 
-            label="Google"
             icon="pi pi-google"
-            className="bg-slate-3 hover:bg-slate-4 text-slate-12 border border-slate-6"
+            rounded
+            text
+            aria-label="Continue with Google"
+            className="w-12 h-12 bg-blue-9 hover:bg-blue-10 text-white border-0"
           />
           <Button 
-            label="GitHub"
-            icon="pi pi-github"
-            className="bg-slate-3 hover:bg-slate-4 text-slate-12 border border-slate-6"
+            icon="pi pi-apple"
+            rounded
+            text
+            aria-label="Continue with Apple"
+            className="w-12 h-12 bg-blue-9 hover:bg-blue-10 text-white border-0"
           />
         </div>
 
@@ -154,12 +182,13 @@ function Login() {
         <div className="mt-6 pt-6 border-t border-slate-6 text-center">
           <p className="text-slate-11 text-sm">
             Don't have an account?{' '}
-            <a href="#" className="text-blue-11 hover:text-blue-12 font-medium">
+            <a href="/signup" className="text-blue-11 hover:text-blue-12 font-medium">
               Sign up
             </a>
           </p>
         </div>
       </Card>
+      </div>
     </div>
   );
 }
