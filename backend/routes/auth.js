@@ -1,274 +1,248 @@
 /**
 =========================================================
-* Authentication Routes
+* Passwordless Authentication Routes
 =========================================================
 
 PUBLIC ROUTES:
-POST /api/auth/register              // Register new user (sends verification email)
-POST /api/auth/login                 // Login user (requires verified email)
-GET  /api/auth/verify-email          // Verify email with token
-POST /api/auth/resend-verification   // Resend verification email
-POST /api/auth/forgot-password       // Request password reset
-POST /api/auth/reset-password        // Reset password with token
+POST /api/auth/request-login      // Request OTP and magic link via email
+POST /api/auth/verify-otp         // Verify OTP code and login
+GET  /api/auth/verify-magic-link  // Verify magic link token and login
 
 PROTECTED ROUTES (require Bearer token):
-POST /api/auth/logout                // Logout user (invalidates token)
-GET  /api/auth/me                    // Get current user info
+POST /api/auth/logout             // Logout user (invalidates token)
+GET  /api/auth/me                 // Get current user info
 
 */
 
-
 import express from "express";
-import bcrypt from "bcrypt";
 import sql from "../config/database.js";
-import { isValidEmail, isValidPassword, isValidName, validationMessages } from "../utils/validation.js";
+import { isValidEmail, validationMessages } from "../utils/validation.js";
 import { generateToken, verifyToken } from "../utils/jwt.js";
-import { generateVerificationToken, generateResetToken, getTokenExpiry, isTokenExpired } from "../utils/tokens.js";
-import { sendVerificationEmail, sendPasswordResetEmail } from "../utils/email.js";
+import { generateOTP, generateMagicLinkToken, getOTPExpiry, getMagicLinkExpiry, isExpired } from "../utils/otp.js";
+import { sendOTPEmail, sendMagicLinkEmail, sendLoginNotification } from "../utils/emailPasswordless.js";
 import { authenticateToken } from "../middleware/auth.js";
-import { 
-  authLimiter,
-  loginLimiter, 
-  registerLimiter, 
-  passwordResetLimiter,
-  resendVerificationLimiter 
-} from "../middleware/rateLimiter.js";
+import { authLimiter, loginLimiter } from "../middleware/rateLimiter.js";
 
 const router = express.Router();
 
-// Register route
-router.post("/register", registerLimiter, async (req, res) => {
+// Request login - sends OTP and magic link
+router.post("/request-login", loginLimiter, async (req, res) => {
   try {
-    const { email, password, name } = req.body;
+    const { email } = req.body;
     
-    // Validation
+    // Validate email
     if (!email) {
       return res.status(400).json({ error: validationMessages.email.required });
     }
+    
     if (!isValidEmail(email)) {
       return res.status(400).json({ error: validationMessages.email.invalid });
     }
     
-    if (!password) {
-      return res.status(400).json({ error: validationMessages.password.required });
-    }
-    if (!isValidPassword(password)) {
-      return res.status(400).json({ error: validationMessages.password.invalid });
-    }
-    
-    if (!name) {
-      return res.status(400).json({ error: validationMessages.name.required });
-    }
-    if (!isValidName(name)) {
-      return res.status(400).json({ error: validationMessages.name.invalid });
-    }
-    
-    // Check if user already exists
-    const existingUser = await sql`
-      SELECT id FROM users WHERE email = ${email.toLowerCase()}
+    // Check if user exists, if not create a new user
+    let [user] = await sql`
+      SELECT id, email, name FROM users WHERE email = ${email.toLowerCase()}
     `;
     
-    if (existingUser.length > 0) {
-      return res.status(409).json({ error: "User with this email already exists" });
+    if (!user) {
+      // Auto-create user on first login attempt
+      [user] = await sql`
+        INSERT INTO users (email)
+        VALUES (${email.toLowerCase()})
+        RETURNING id, email, name
+      `;
     }
     
-    // Hash password
-    const saltRounds = 10;
-    const hashedPassword = await bcrypt.hash(password, saltRounds);
+    // Generate OTP code
+    const otpCode = generateOTP();
+    const otpExpiry = getOTPExpiry(10); // 10 minutes
     
-    // Generate verification token
-    const verificationToken = generateVerificationToken();
-    const tokenExpiry = getTokenExpiry(24); // 24 hours
-    
-    // Save user to database with verification token
-    const [newUser] = await sql`
-      INSERT INTO users (email, password, name, email_verified, verification_token, verification_token_expires)
-      VALUES (${email.toLowerCase()}, ${hashedPassword}, ${name.trim()}, false, ${verificationToken}, ${tokenExpiry})
-      RETURNING id, email, name, email_verified, created_at
+    // Save OTP to database
+    await sql`
+      INSERT INTO otp_codes (email, otp_code, expires_at)
+      VALUES (${email.toLowerCase()}, ${otpCode}, ${otpExpiry})
     `;
     
-    // Send verification email
-    await sendVerificationEmail(newUser.email, verificationToken, newUser.name);
+    // Generate magic link token
+    const magicLinkToken = generateMagicLinkToken();
+    const magicLinkExpiry = getMagicLinkExpiry(15); // 15 minutes
     
-    res.status(201).json({ 
-      message: "User registered successfully. Please check your email to verify your account.",
-      user: {
-        id: newUser.id,
-        email: newUser.email,
-        name: newUser.name,
-        emailVerified: newUser.email_verified,
-        createdAt: newUser.created_at
-      }
+    // Save magic link to database
+    await sql`
+      INSERT INTO magic_links (email, token, expires_at)
+      VALUES (${email.toLowerCase()}, ${magicLinkToken}, ${magicLinkExpiry})
+    `;
+    
+    // Send email with both OTP and magic link
+    await sendOTPEmail(user.email, otpCode, user.name);
+    await sendMagicLinkEmail(user.email, magicLinkToken, user.name);
+
+    res.status(200).json({ 
+      message: "Login code sent! Check your email for the OTP code and magic link.",
+      email: user.email
     });
   } catch (error) {
-    res.status(500).json({ error: "An error occurred during registration" });
+    console.error("Request login error:", error);
+    res.status(500).json({ error: "An error occurred while processing your request" });
   }
 });
 
-// Login route
-router.post("/login", loginLimiter, async (req, res) => {
+// Verify OTP and login
+router.post("/verify-otp", loginLimiter, async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, otp } = req.body;
     
     // Validate input
     if (!email) {
       return res.status(400).json({ error: validationMessages.email.required });
     }
-    if (!isValidEmail(email)) {
-      return res.status(400).json({ error: validationMessages.email.invalid });
+    
+    if (!otp) {
+      return res.status(400).json({ error: "OTP code is required" });
     }
     
-    if (!password) {  
-      return res.status(400).json({ error: validationMessages.password.required });
+    if (!/^\d{6}$/.test(otp)) {
+      return res.status(400).json({ error: "OTP must be a 6-digit code" });
     }
     
-    // Find user by email
-    const users = await sql`
-      SELECT id, email, password, name, email_verified, created_at 
-      FROM users 
-      WHERE email = ${email.toLowerCase()}
+    // Find valid OTP
+    const [otpRecord] = await sql`
+      SELECT id, email, otp_code, expires_at, used
+      FROM otp_codes 
+      WHERE email = ${email.toLowerCase()} 
+        AND otp_code = ${otp}
+        AND used = false
+      ORDER BY created_at DESC
+      LIMIT 1
     `;
     
-    const user = users[0];
+    if (!otpRecord) {
+      return res.status(401).json({ error: "Invalid or expired OTP code" });
+    }
+    
+    // Check if OTP is expired
+    if (isExpired(otpRecord.expires_at)) {
+      return res.status(401).json({ error: "OTP code has expired. Please request a new one." });
+    }
+    
+    // Mark OTP as used
+    await sql`
+      UPDATE otp_codes 
+      SET used = true 
+      WHERE id = ${otpRecord.id}
+    `;
+    
+    // Get or create user
+    let [user] = await sql`
+      SELECT id, email, name FROM users WHERE email = ${email.toLowerCase()}
+    `;
     
     if (!user) {
-      return res.status(401).json({ error: "Invalid email or password" });
+      [user] = await sql`
+        INSERT INTO users (email)
+        VALUES (${email.toLowerCase()})
+        RETURNING id, email, name
+      `;
     }
     
-    // Check if email is verified
-    if (!user.email_verified) {
-      return res.status(403).json({ 
-        error: "Please verify your email before logging in. Check your inbox for the verification link." 
-      });
-    }
-    
-    // Check password
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    
-    if (!isPasswordValid) {
-      return res.status(401).json({ error: "Invalid email or password" });
-    }
+    // Update last login
+    await sql`
+      UPDATE users 
+      SET last_login_at = NOW()
+      WHERE id = ${user.id}
+    `;
     
     // Generate JWT token
     const token = generateToken(user.id, user.email);
     
-    // Return success with token and user info (without password)
+    // Send login notification
+    await sendLoginNotification(user.email, user.name);
+    
     res.status(200).json({ 
       message: "Login successful",
       token,
       user: {
         id: user.id,
         email: user.email,
-        name: user.name,
-        createdAt: user.created_at
+        name: user.name
       }
     });
   } catch (error) {
-    console.error("Login error:", error);
-    res.status(500).json({ error: "An error occurred during login" });
+    res.status(500).json({ error: "An error occurred during verification" });
   }
 });
 
-// Verify email route
-router.get("/verify-email", authLimiter, async (req, res) => {
+// Verify magic link and login
+router.get("/verify-magic-link", authLimiter, async (req, res) => {
   try {
     const { token } = req.query;
     
     if (!token) {
-      return res.status(400).json({ error: "Verification token is required" });
+      return res.status(400).json({ error: "Magic link token is required" });
     }
     
-    // Find user with this verification token
-    const [user] = await sql`
-      SELECT id, email, name, verification_token_expires
-      FROM users 
-      WHERE verification_token = ${token}
+    // Find valid magic link
+    const [linkRecord] = await sql`
+      SELECT id, email, expires_at, used
+      FROM magic_links 
+      WHERE token = ${token}
+        AND used = false
+    `;
+    
+    if (!linkRecord) {
+      return res.status(401).json({ error: "Invalid or expired magic link" });
+    }
+    
+    // Check if magic link is expired
+    if (isExpired(linkRecord.expires_at)) {
+      return res.status(401).json({ error: "Magic link has expired. Please request a new one." });
+    }
+    
+    // Mark magic link as used
+    await sql`
+      UPDATE magic_links 
+      SET used = true 
+      WHERE id = ${linkRecord.id}
+    `;
+    
+    // Get or create user
+    let [user] = await sql`
+      SELECT id, email, name FROM users WHERE email = ${linkRecord.email}
     `;
     
     if (!user) {
-      return res.status(400).json({ error: "Invalid verification token" });
+      [user] = await sql`
+        INSERT INTO users (email)
+        VALUES (${linkRecord.email})
+        RETURNING id, email, name
+      `;
     }
     
-    // Check if token is expired
-    if (isTokenExpired(user.verification_token_expires)) {
-      return res.status(400).json({ error: "Verification token has expired. Please request a new one." });
-    }
-    
-    // Update user as verified and clear token
+    // Update last login
     await sql`
       UPDATE users 
-      SET email_verified = true,
-          verification_token = NULL,
-          verification_token_expires = NULL
+      SET last_login_at = NOW()
       WHERE id = ${user.id}
     `;
     
+    // Generate JWT token
+    const jwtToken = generateToken(user.id, user.email);
+    
+    // Send login notification
+    await sendLoginNotification(user.email, user.name);
+    
     res.status(200).json({ 
-      message: "Email verified successfully! You can now log in.",
+      message: "Login successful",
+      token: jwtToken,
       user: {
+        id: user.id,
         email: user.email,
         name: user.name
       }
     });
   } catch (error) {
-    console.error("Email verification error:", error);
-    res.status(500).json({ error: "An error occurred during email verification" });
-  }
-});
-
-// Resend verification email route
-router.post("/resend-verification", resendVerificationLimiter, async (req, res) => {
-  try {
-    const { email } = req.body;
-    
-    if (!email) {
-      return res.status(400).json({ error: validationMessages.email.required });
-    }
-    
-    if (!isValidEmail(email)) {
-      return res.status(400).json({ error: validationMessages.email.invalid });
-    }
-    
-    // Find user
-    const [user] = await sql`
-      SELECT id, email, name, email_verified
-      FROM users 
-      WHERE email = ${email.toLowerCase()}
-    `;
-    
-    if (!user) {
-      // Don't reveal if user exists or not for security
-      return res.status(200).json({ 
-        message: "If an account with that email exists and is unverified, a verification email has been sent." 
-      });
-    }
-    
-    // Check if already verified
-    if (user.email_verified) {
-      return res.status(400).json({ error: "Email is already verified" });
-    }
-    
-    // Generate new verification token
-    const verificationToken = generateVerificationToken();
-    const tokenExpiry = getTokenExpiry(24);
-    
-    // Update user with new token
-    await sql`
-      UPDATE users 
-      SET verification_token = ${verificationToken},
-          verification_token_expires = ${tokenExpiry}
-      WHERE id = ${user.id}
-    `;
-    
-    // Send verification email
-    await sendVerificationEmail(user.email, verificationToken, user.name);
-    
-    res.status(200).json({ 
-      message: "Verification email sent. Please check your inbox." 
-    });
-  } catch (error) {
-    console.error("Resend verification error:", error);
-    res.status(500).json({ error: "An error occurred while sending verification email" });
+    console.error("Verify magic link error:", error);
+    res.status(500).json({ error: "An error occurred during verification" });
   }
 });
 
@@ -299,114 +273,8 @@ router.post("/logout", authenticateToken, async (req, res) => {
       message: "Logout successful. Token has been invalidated." 
     });
   } catch (error) {
+    console.error("Logout error:", error);
     res.status(500).json({ error: "An error occurred during logout" });
-  }
-});
-
-// Forgot password route
-router.post("/forgot-password", passwordResetLimiter, async (req, res) => {
-  try {
-    const { email } = req.body;
-    
-    // Validate email
-    if (!email) {
-      return res.status(400).json({ error: validationMessages.email.required });
-    }
-    
-    if (!isValidEmail(email)) {
-      return res.status(400).json({ error: validationMessages.email.invalid });
-    }
-    
-    // Check if user exists in database
-    const [user] = await sql`
-      SELECT id, email, name
-      FROM users 
-      WHERE email = ${email.toLowerCase()}
-    `;
-    
-    // Don't reveal if user exists or not for security reasons
-    if (!user) {
-      return res.status(200).json({ 
-        message: "If an account with that email exists, a password reset link has been sent." 
-      });
-    }
-    
-    // Generate password reset token
-    const resetToken = generateResetToken();
-    const tokenExpiry = getTokenExpiry(1); // 1 hour expiry for password reset
-    
-    // Save token with expiry to database
-    await sql`
-      UPDATE users 
-      SET reset_password_token = ${resetToken},
-          reset_password_expires = ${tokenExpiry}
-      WHERE id = ${user.id}
-    `;
-    
-    // Send password reset email with token link
-    await sendPasswordResetEmail(user.email, resetToken, user.name);
-    
-    res.status(200).json({ 
-      message: "If an account with that email exists, a password reset link has been sent." 
-    });
-  } catch (error) {
-    res.status(500).json({ error: "An error occurred while processing your request" });
-  }
-});
-
-// Reset password route
-router.post("/reset-password", passwordResetLimiter, async (req, res) => {
-  try {
-    const { token, newPassword } = req.body;
-    
-    // Validate token
-    if (!token) {
-      return res.status(400).json({ error: "Reset token is required" });
-    }
-    
-    // Validate new password
-    if (!newPassword) {
-      return res.status(400).json({ error: validationMessages.password.required });
-    }
-    
-    if (!isValidPassword(newPassword)) {
-      return res.status(400).json({ error: validationMessages.password.invalid });
-    }
-    
-    // Find user with this reset token
-    const [user] = await sql`
-      SELECT id, email, name, reset_password_expires
-      FROM users 
-      WHERE reset_password_token = ${token}
-    `;
-    
-    if (!user) {
-      return res.status(400).json({ error: "Invalid or expired reset token" });
-    }
-    
-    // Check if token is expired
-    if (isTokenExpired(user.reset_password_expires)) {
-      return res.status(400).json({ error: "Reset token has expired. Please request a new one." });
-    }
-    
-    // Hash new password
-    const saltRounds = 10;
-    const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
-    
-    // Update user password in database and delete/invalidate the reset token
-    await sql`
-      UPDATE users 
-      SET password = ${hashedPassword},
-          reset_password_token = NULL,
-          reset_password_expires = NULL
-      WHERE id = ${user.id}
-    `;
-    
-    res.status(200).json({ 
-      message: "Password reset successful. You can now log in with your new password." 
-    });
-  } catch (error) {
-    res.status(500).json({ error: "An error occurred while resetting your password" });
   }
 });
 
@@ -417,7 +285,7 @@ router.get("/me", authenticateToken, async (req, res) => {
     
     // Fetch user from database
     const [user] = await sql`
-      SELECT id, email, name, email_verified, created_at, updated_at
+      SELECT id, email, name, created_at, updated_at, last_login_at
       FROM users 
       WHERE id = ${userId}
     `;
@@ -431,9 +299,9 @@ router.get("/me", authenticateToken, async (req, res) => {
         id: user.id,
         email: user.email,
         name: user.name,
-        emailVerified: user.email_verified,
         createdAt: user.created_at,
-        updatedAt: user.updated_at
+        updatedAt: user.updated_at,
+        lastLoginAt: user.last_login_at
       }
     });
   } catch (error) {

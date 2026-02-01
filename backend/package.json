@@ -8,8 +8,9 @@
     "dev": "nodemon index.js",
     "db:init": "node database/init.js",
     "db:migrate": "node database/migrate.js",
+    "db:migrate-passwordless": "node database/migrate_to_passwordless.js",
     "db:view": "node scripts/viewUsers.js",
-    "db:cleanup": "node scripts/cleanupTokens.js"
+    "db:cleanup": "node scripts/cleanupOTP.js"
   },
   "keywords": [],
   "author": "",
