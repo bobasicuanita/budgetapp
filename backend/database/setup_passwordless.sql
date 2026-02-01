@@ -25,20 +25,7 @@ CREATE TABLE IF NOT EXISTS otp_codes (
 CREATE INDEX IF NOT EXISTS idx_otp_email ON otp_codes(email);
 CREATE INDEX IF NOT EXISTS idx_otp_code ON otp_codes(otp_code);
 
--- Create magic links table
-CREATE TABLE IF NOT EXISTS magic_links (
-  id SERIAL PRIMARY KEY,
-  email VARCHAR(255) NOT NULL,
-  token VARCHAR(255) UNIQUE NOT NULL,
-  expires_at TIMESTAMP NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  used BOOLEAN DEFAULT FALSE
-);
-
--- Create index on token for faster lookups
-CREATE INDEX IF NOT EXISTS idx_magic_link_token ON magic_links(token);
-
--- Create token blacklist table (keep this for logout)
+-- Create token blacklist table (for logout)
 CREATE TABLE IF NOT EXISTS blacklisted_tokens (
   id SERIAL PRIMARY KEY,
   token TEXT NOT NULL UNIQUE,

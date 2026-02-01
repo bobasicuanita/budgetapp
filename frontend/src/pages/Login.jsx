@@ -1,8 +1,6 @@
 import { Card } from 'primereact/card';
 import { InputText } from 'primereact/inputtext';
-import { Password } from 'primereact/password';
 import { Button } from 'primereact/button';
-import { Ripple } from 'primereact/ripple';
 import { Toast } from 'primereact/toast';
 import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -11,14 +9,13 @@ import '../App.css';
 
 function Login() {
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const navigate = useNavigate();
   const toast = useRef(null);
 
   // Login mutation using React Query
   const loginMutation = useMutation({
     mutationFn: async (credentials) => {
-      const response = await fetch('http://localhost:5000/api/auth/login', {
+      const response = await fetch('http://localhost:5000/api/auth/request-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(credentials)
@@ -60,7 +57,7 @@ function Login() {
 
   const handleLogin = (e) => {
     e.preventDefault();
-    loginMutation.mutate({ email, password });
+    loginMutation.mutate({ email });
   };
 
   return (
@@ -94,9 +91,7 @@ function Login() {
         <form onSubmit={handleLogin} className="space-y-4">
           {/* Email Input */}
           <div>
-            <label className="block text-sm font-medium text-slate-12 mb-2">
-              Email
-            </label>
+
             <div className="input-hover-wrapper">
               <InputText 
                 value={email}
@@ -114,53 +109,10 @@ function Login() {
             </div>
           </div>
 
-          {/* Password Input */}
-          <div>
-            <label className="block text-sm font-medium text-slate-12 mb-2">
-              Password
-            </label>
-            <div className="input-hover-wrapper">
-              <Password 
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter your password"
-                toggleMask
-                feedback={false}
-                required
-                className="w-full block"
-                pt={{
-                  root: { className: 'w-full' },
-                  input: { 
-                    className: 'w-full px-4 py-3 bg-slate-1 transition-colors border border-slate-7 rounded-md' 
-                  },
-                  showIcon: { 
-                    className: 'focus:outline-none focus:ring-0 focus:shadow-none cursor-pointer text-slate-11 hover:text-slate-12' 
-                  },
-                  hideIcon: { 
-                    className: 'focus:outline-none focus:ring-0 focus:shadow-none cursor-pointer text-slate-11 hover:text-slate-12' 
-                  }
-                }}
-              />
-            </div>
-          </div>
-
-          {/* Remember Me & Forgot Password */}
-          <div className="flex items-center justify-between text-sm">
-            <label className="flex items-center gap-2 text-slate-11 cursor-pointer p-ripple relative">
-              <input type="checkbox" className="w-4 h-4 accent-blue-9" />
-              Remember me
-              <Ripple />
-            </label>
-            <a href="/forgot-password" className="text-blue-11 hover:text-blue-12 p-2 rounded p-ripple relative inline-block">
-              Forgot password?
-              <Ripple />
-            </a>
-          </div>
-
           {/* Login Button */}
           <Button 
             type="submit"
-            label={loginMutation.isPending ? "" : "Sign In"}
+            label={loginMutation.isPending ? "" : "Continue with Email"}
             icon={loginMutation.isPending ? "pi pi-spin pi-spinner" : ""}
             disabled={loginMutation.isPending}
             className="w-full bg-blue-9 hover:bg-blue-10 border-0 text-white font-semibold py-3"
@@ -170,7 +122,7 @@ function Login() {
         {/* Divider with Gradient Fade */}
         <div className="flex items-center gap-4 my-6">
           <div className="flex-1 h-[2px] rounded-full bg-gradient-to-r from-transparent via-slate-6/50 to-slate-6"></div>
-          <span className="text-slate-11 text-sm whitespace-nowrap">Or continue with</span>
+          <span className="text-slate-11 text-sm whitespace-nowrap">Or sign in with</span>
           <div className="flex-1 h-[2px] rounded-full bg-gradient-to-l from-transparent via-slate-6/50 to-slate-6"></div>
         </div>
 
@@ -184,23 +136,14 @@ function Login() {
             className="w-12 h-12 bg-blue-9 hover:bg-blue-10 text-white border-0"
           />
           <Button 
-            icon="pi pi-apple"
+            icon="pi pi-facebook"
             rounded
             text
-            aria-label="Continue with Apple"
+            aria-label="Continue with Facebook"
             className="w-12 h-12 bg-blue-9 hover:bg-blue-10 text-white border-0"
           />
         </div>
 
-        {/* Footer */}
-        <div className="mt-6 pt-6 border-t border-slate-6 text-center">
-          <p className="text-slate-11 text-sm">
-            Don't have an account?{' '}
-            <a href="/signup" className="text-blue-11 hover:text-blue-12 font-medium">
-              Sign up
-            </a>
-          </p>
-        </div>
       </Card>
       </div>
     </div>

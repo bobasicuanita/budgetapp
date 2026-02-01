@@ -1,12 +1,11 @@
 /**
 =========================================================
-* Passwordless Authentication Routes
+* Passwordless Authentication Routes (OTP Only)
 =========================================================
 
 PUBLIC ROUTES:
-POST /api/auth/request-login      // Request OTP and magic link via email
+POST /api/auth/request-login      // Request OTP via email
 POST /api/auth/verify-otp         // Verify OTP code and login
-GET  /api/auth/verify-magic-link  // Verify magic link token and login
 
 PROTECTED ROUTES (require Bearer token):
 POST /api/auth/logout             // Logout user (invalidates token)
@@ -18,14 +17,14 @@ import express from "express";
 import sql from "../config/database.js";
 import { isValidEmail, validationMessages } from "../utils/validation.js";
 import { generateToken, verifyToken } from "../utils/jwt.js";
-import { generateOTP, generateMagicLinkToken, getOTPExpiry, getMagicLinkExpiry, isExpired } from "../utils/otp.js";
-import { sendOTPEmail, sendMagicLinkEmail, sendLoginNotification } from "../utils/emailPasswordless.js";
+import { generateOTP, getOTPExpiry, isExpired } from "../utils/otp.js";
+import { sendOTPEmail, sendLoginNotification } from "../utils/emailPasswordless.js";
 import { authenticateToken } from "../middleware/auth.js";
-import { authLimiter, loginLimiter } from "../middleware/rateLimiter.js";
+import { loginLimiter } from "../middleware/rateLimiter.js";
 
 const router = express.Router();
 
-// Request login - sends OTP and magic link
+// Request login - sends OTP code via email
 router.post("/request-login", loginLimiter, async (req, res) => {
   try {
     const { email } = req.body;
@@ -63,26 +62,15 @@ router.post("/request-login", loginLimiter, async (req, res) => {
       VALUES (${email.toLowerCase()}, ${otpCode}, ${otpExpiry})
     `;
     
-    // Generate magic link token
-    const magicLinkToken = generateMagicLinkToken();
-    const magicLinkExpiry = getMagicLinkExpiry(15); // 15 minutes
-    
-    // Save magic link to database
-    await sql`
-      INSERT INTO magic_links (email, token, expires_at)
-      VALUES (${email.toLowerCase()}, ${magicLinkToken}, ${magicLinkExpiry})
-    `;
-    
-    // Send email with both OTP and magic link
+    // Send email with OTP
     await sendOTPEmail(user.email, otpCode, user.name);
-    await sendMagicLinkEmail(user.email, magicLinkToken, user.name);
-
+    
     res.status(200).json({ 
-      message: "Login code sent! Check your email for the OTP code and magic link.",
+      message: "Login code sent! Check your email for the 6-digit code.",
       email: user.email
     });
   } catch (error) {
-    console.error("Request login error:", error);
+    console.error("Request OTP error:", error);
     res.status(500).json({ error: "An error occurred while processing your request" });
   }
 });
@@ -157,7 +145,7 @@ router.post("/verify-otp", loginLimiter, async (req, res) => {
     
     // Send login notification
     await sendLoginNotification(user.email, user.name);
-    
+
     res.status(200).json({ 
       message: "Login successful",
       token,
@@ -168,80 +156,7 @@ router.post("/verify-otp", loginLimiter, async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ error: "An error occurred during verification" });
-  }
-});
-
-// Verify magic link and login
-router.get("/verify-magic-link", authLimiter, async (req, res) => {
-  try {
-    const { token } = req.query;
-    
-    if (!token) {
-      return res.status(400).json({ error: "Magic link token is required" });
-    }
-    
-    // Find valid magic link
-    const [linkRecord] = await sql`
-      SELECT id, email, expires_at, used
-      FROM magic_links 
-      WHERE token = ${token}
-        AND used = false
-    `;
-    
-    if (!linkRecord) {
-      return res.status(401).json({ error: "Invalid or expired magic link" });
-    }
-    
-    // Check if magic link is expired
-    if (isExpired(linkRecord.expires_at)) {
-      return res.status(401).json({ error: "Magic link has expired. Please request a new one." });
-    }
-    
-    // Mark magic link as used
-    await sql`
-      UPDATE magic_links 
-      SET used = true 
-      WHERE id = ${linkRecord.id}
-    `;
-    
-    // Get or create user
-    let [user] = await sql`
-      SELECT id, email, name FROM users WHERE email = ${linkRecord.email}
-    `;
-    
-    if (!user) {
-      [user] = await sql`
-        INSERT INTO users (email)
-        VALUES (${linkRecord.email})
-        RETURNING id, email, name
-      `;
-    }
-    
-    // Update last login
-    await sql`
-      UPDATE users 
-      SET last_login_at = NOW()
-      WHERE id = ${user.id}
-    `;
-    
-    // Generate JWT token
-    const jwtToken = generateToken(user.id, user.email);
-    
-    // Send login notification
-    await sendLoginNotification(user.email, user.name);
-    
-    res.status(200).json({ 
-      message: "Login successful",
-      token: jwtToken,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name
-      }
-    });
-  } catch (error) {
-    console.error("Verify magic link error:", error);
+    console.error("Verify OTP error:", error);
     res.status(500).json({ error: "An error occurred during verification" });
   }
 });
