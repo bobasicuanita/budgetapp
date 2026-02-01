@@ -1,9 +1,11 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import ProtectedRoute from '../components/ProtectedRoute';
+import GuestRoute from '../components/GuestRoute';
+import RootRedirect from '../components/RootRedirect';
 
-// Page components (you'll create these)
-// import SignUp from '../pages/SignUp';
+// Page components
 import Login from '../pages/Login';
+import VerifyOtp from '../pages/VerifyOtp';
 import Dashboard from '../pages/Dashboard';
 // import Settings from '../pages/Settings';
 // import Budgets from '../pages/Budgets';
@@ -14,13 +16,26 @@ function AppRoutes() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* ===== PUBLIC ROUTES ===== */}
-        <Route path="/" element={<Navigate to="/login" replace />} />
-        {/* <Route path="/signup" element={<SignUp />} /> */}
-        <Route path="/login" element={<Login />} />
-        <Route path="/verify-email" element={<div>Email Verification Page</div>} />
-        <Route path="/forgot-password" element={<div>Forgot Password Page</div>} />
-        <Route path="/reset-password" element={<div>Reset Password Page</div>} />
+        {/* ===== ROOT ===== */}
+        <Route path="/" element={<RootRedirect />} />
+        
+        {/* ===== PUBLIC ROUTES (Guest Only) ===== */}
+        <Route 
+          path="/login" 
+          element={
+            <GuestRoute>
+              <Login />
+            </GuestRoute>
+          } 
+        />
+        <Route 
+          path="/verify-otp" 
+          element={
+            <GuestRoute>
+              <VerifyOtp />
+            </GuestRoute>
+          } 
+        />
         
         {/* ===== PROTECTED ROUTES ===== */}
         <Route 

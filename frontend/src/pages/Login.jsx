@@ -30,25 +30,13 @@ function Login() {
       return data;
     },
     onSuccess: (data) => {
-      // Save token to localStorage
-      localStorage.setItem('token', data.token);
-      
-      // Show success message
-      toast.current.show({
-        severity: 'success',
-        summary: 'Success',
-        detail: 'Login successful!',
-        life: 2000
-      });
-      
-      // Redirect to dashboard after brief delay
-      setTimeout(() => navigate('/dashboard'), 500);
+      navigate('/verify-otp', { state: { email: data.email } })
     },
     onError: (error) => {
       // Show error toast
       toast.current.show({
         severity: 'error',
-        summary: 'Login Failed',
+        summary: 'Error',
         detail: error.message,
         life: 5000
       });
@@ -65,7 +53,7 @@ function Login() {
       <Toast ref={toast} />
       
       {/* Gradient border wrapper */}
-      <div className="w-full max-w-md p-[4px] bg-gradient-to-b from-blue-9 via-blue-9/50 to-transparent rounded-[1.8rem]">
+      <div className="w-full max-w-lg p-[4px] bg-gradient-to-b from-blue-9 via-blue-9/50 to-transparent rounded-[1.8rem]">
         <Card className="w-full bg-slate-1 rounded-3xl shadow-none"
         pt={{
           root: { className: 'shadow-none' },
