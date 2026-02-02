@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import authRoutes from "./routes/auth.js";
+import onboardingRoutes from "./routes/onboarding.js";
 import { authenticateToken } from "./middleware/auth.js";
 
 dotenv.config();
@@ -24,6 +25,9 @@ app.get("/api/hello", (req, res) => {
 // ===== PROTECTED ROUTES (Authentication required) =====
 // All routes defined after this middleware require authentication
 app.use(authenticateToken);
+
+// Onboarding routes (protected)
+app.use("/api/onboarding", onboardingRoutes);
 
 // Example protected route
 app.get("/api/protected", (req, res) => {

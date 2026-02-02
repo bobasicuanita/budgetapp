@@ -2,10 +2,12 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import ProtectedRoute from '../components/ProtectedRoute';
 import GuestRoute from '../components/GuestRoute';
 import RootRedirect from '../components/RootRedirect';
+import RequireOnboarding from '../components/RequireOnboarding';
 
 // Page components
 import Login from '../pages/Login';
 import VerifyOtp from '../pages/VerifyOtp';
+import Onboarding from '../pages/Onboarding';
 import Dashboard from '../pages/Dashboard';
 // import Settings from '../pages/Settings';
 // import Budgets from '../pages/Budgets';
@@ -37,12 +39,24 @@ function AppRoutes() {
           } 
         />
         
-        {/* ===== PROTECTED ROUTES ===== */}
+        {/* ===== ONBOARDING (Protected, but no onboarding check) ===== */}
+        <Route 
+          path="/onboarding" 
+          element={
+            <ProtectedRoute>
+              <Onboarding />
+            </ProtectedRoute>
+          } 
+        />
+        
+        {/* ===== PROTECTED ROUTES (Require onboarding completed) ===== */}
         <Route 
           path="/dashboard" 
           element={
             <ProtectedRoute>
-              <Dashboard />
+              <RequireOnboarding>
+                <Dashboard />
+              </RequireOnboarding>
             </ProtectedRoute>
           } 
         />

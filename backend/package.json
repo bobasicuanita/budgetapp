@@ -9,6 +9,7 @@
     "db:init": "node database/init.js",
     "db:migrate": "node database/migrate.js",
     "db:migrate-passwordless": "node database/migrate_to_passwordless.js",
+    "db:migrate-onboarding": "node database/runMigration.js migrations/003_onboarding_wallets.sql",
     "db:view": "node scripts/viewUsers.js",
     "db:cleanup": "node scripts/cleanupOTP.js"
   },
