@@ -6,36 +6,36 @@ const router = express.Router();
 
 /**
  * POST /api/onboarding/complete
- * Complete user onboarding - save base currency and first wallet
+ * Complete user onboarding - save user info, base currency, and first wallet
  */
 router.post("/complete", authenticateToken, async (req, res) => {
-  const { base_currency, wallet } = req.body;
+  const { first_name, last_name, base_currency, wallet } = req.body;
   const userId = req.user.userId;
 
   try {
-    // Validate inputs
+    // Validate mandatory fields
     if (!base_currency || base_currency.length !== 3) {
       return res.status(400).json({ 
         error: "Valid base_currency is required (3-letter ISO code)" 
       });
     }
 
-    if (!wallet || !wallet.type || wallet.starting_balance === undefined) {
+    if (!wallet || !wallet.type) {
       return res.status(400).json({ 
-        error: "Wallet with type and starting_balance is required" 
+        error: "Wallet type is required" 
       });
     }
 
     // Validate wallet type
-    const validTypes = ['cash', 'bank', 'credit_card', 'savings', 'investment'];
+    const validTypes = ['cash', 'bank', 'digital_wallet'];
     if (!validTypes.includes(wallet.type)) {
       return res.status(400).json({ 
-        error: `Invalid wallet type. Must be one of: ${validTypes.join(', ')}` 
+        error: `Invalid wallet type for onboarding. Must be one of: ${validTypes.join(', ')}` 
       });
     }
 
-    // Default wallet name if not provided
-    const walletName = wallet.name || getDefaultWalletName(wallet.type);
+    // Default starting_balance to 0 if not provided
+    const startingBalance = wallet.starting_balance ?? 0;
     
     // Default currency to base_currency if not provided
     const walletCurrency = wallet.currency || base_currency;
@@ -45,15 +45,25 @@ router.post("/complete", authenticateToken, async (req, res) => {
 
     // Start transaction
     await sql.begin(async (sql) => {
-      // Update user with base currency and mark onboarding complete
+      // Build user name from first_name and last_name (if provided)
+      let fullName = null;
+      if (first_name || last_name) {
+        fullName = [first_name, last_name].filter(Boolean).join(' ');
+      }
+
+      // Update user with name, base currency, and mark onboarding complete
       await sql`
         UPDATE users 
         SET 
+          name = ${fullName},
           base_currency = ${base_currency.toUpperCase()},
           onboarding_completed = TRUE,
           onboarding_completed_at = NOW()
         WHERE id = ${userId}
       `;
+
+      // Generate smart wallet name if not provided
+      const walletName = wallet.name || await generateWalletName(sql, userId, wallet.type);
 
       // Create the first wallet
       const [createdWallet] = await sql`
@@ -72,8 +82,8 @@ router.post("/complete", authenticateToken, async (req, res) => {
           ${walletName},
           ${wallet.type},
           ${walletCurrency.toUpperCase()},
-          ${wallet.starting_balance},
-          ${wallet.starting_balance},  -- current_balance = starting_balance initially
+          ${startingBalance},
+          ${startingBalance},
           ${wallet.icon || icon},
           ${wallet.color || color}
         )
@@ -177,17 +187,16 @@ router.post("/wallets", authenticateToken, async (req, res) => {
   const userId = req.user.userId;
 
   try {
-    // Validate
-    const validTypes = ['cash', 'bank', 'credit_card', 'savings', 'investment'];
-    if (!validTypes.includes(type)) {
+    // Validate wallet type (currency-based accounts only)
+    const validTypes = ['cash', 'bank', 'digital_wallet'];
+    if (!type || !validTypes.includes(type)) {
       return res.status(400).json({ 
         error: `Invalid wallet type. Must be one of: ${validTypes.join(', ')}` 
       });
     }
 
-    if (starting_balance === undefined || starting_balance === null) {
-      return res.status(400).json({ error: "starting_balance is required" });
-    }
+    // Default starting_balance to 0 if not provided
+    const startingBalance = starting_balance ?? 0;
 
     // Get user's base currency as default
     const [user] = await sql`SELECT base_currency FROM users WHERE id = ${userId}`;
@@ -195,7 +204,9 @@ router.post("/wallets", authenticateToken, async (req, res) => {
 
     // Get defaults
     const { icon: defaultIcon, color: defaultColor } = getWalletDefaults(type);
-    const walletName = name || getDefaultWalletName(type);
+    
+    // Generate smart wallet name if not provided
+    const walletName = name || await generateWalletName(sql, userId, type);
 
     // Create wallet
     const [wallet] = await sql`
@@ -214,8 +225,8 @@ router.post("/wallets", authenticateToken, async (req, res) => {
         ${walletName},
         ${type},
         ${walletCurrency.toUpperCase()},
-        ${starting_balance},
-        ${starting_balance},
+        ${startingBalance},
+        ${startingBalance},
         ${icon || defaultIcon},
         ${color || defaultColor}
       )
@@ -235,26 +246,44 @@ router.post("/wallets", authenticateToken, async (req, res) => {
 
 // ===== HELPER FUNCTIONS =====
 
-function getDefaultWalletName(type) {
-  const names = {
+/**
+ * Generate smart wallet name based on type and existing wallets
+ * Examples: "Cash Wallet 1", "Bank Account 2", "Digital Wallet 3", etc.
+ */
+async function generateWalletName(sql, userId, type) {
+  // Get wallet type display name
+  const typeNames = {
     cash: 'Cash',
     bank: 'Bank Account',
-    credit_card: 'Credit Card',
-    savings: 'Savings',
-    investment: 'Investment Account'
+    digital_wallet: 'Digital Wallet'
   };
-  return names[type] || 'Wallet';
+  const typeName = typeNames[type] || 'Wallet';
+
+  // Count existing wallets of this type for the user
+  const [result] = await sql`
+    SELECT COUNT(*) as count
+    FROM wallets
+    WHERE user_id = ${userId} AND type = ${type}
+  `;
+
+  const count = parseInt(result.count);
+  const nextNumber = count + 1;
+
+  // Cash needs "Wallet" suffix, others already have descriptive names
+  if (type === 'cash') {
+    return `${typeName} Wallet ${nextNumber}`;
+  } else {
+    return `${typeName} ${nextNumber}`;
+  }
 }
 
 function getWalletDefaults(type) {
   const defaults = {
     cash: { icon: '💵', color: 'green' },
     bank: { icon: '🏦', color: 'blue' },
-    credit_card: { icon: '💳', color: 'red' },
-    savings: { icon: '💰', color: 'amber' },
-    investment: { icon: '📈', color: 'purple' }
+    digital_wallet: { icon: '📱', color: 'purple' }
   };
-  return defaults[type] || { icon: '💼', color: 'slate' };
+  return defaults[type] || { icon: '💼', color: 'gray' };
 }
 
 export default router;

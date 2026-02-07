@@ -1,0 +1,22 @@
+/* Ripple Effect - Reusable for all buttons and anchors */
+button,
+a {
+  position: relative;
+  overflow: hidden;
+}
+
+.ripple {
+  position: absolute;
+  border-radius: 50%;
+  background-color: rgba(255, 255, 255, 0.6);
+  transform: scale(0);
+  animation: ripple-animation 600ms ease-out;
+  pointer-events: none;
+}
+
+@keyframes ripple-animation {
+  to {
+    transform: scale(4);
+    opacity: 0;
+  }
+}

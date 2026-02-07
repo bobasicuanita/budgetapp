@@ -58,3 +58,22 @@ export const resendVerificationLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+// Rate limiter for OTP code resend (request-login)
+export const otpResendLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute (60 seconds)
+  max: 1, // Limit each IP to 1 OTP request per minute
+  message: {
+    error: "Please wait before requesting another code."
+  },
+  standardHeaders: 'draft-7', // Includes Retry-After header
+  legacyHeaders: false,
+  skipSuccessfulRequests: false, // Count all requests
+  handler: (req, res) => {
+    const retryAfter = Math.ceil((req.rateLimit.resetTime - Date.now()) / 1000);
+    res.status(429).json({
+      error: "Please wait before requesting another code.",
+      retryAfter: retryAfter
+    });
+  }
+});
