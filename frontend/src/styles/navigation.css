@@ -1,0 +1,28 @@
+/* Navigation menu item hover styles */
+.nav-menu-item:hover {
+  background-color: var(--blue-4) !important;
+  color: var(--blue-9) !important;
+}
+
+.nav-menu-item:hover .mantine-NavLink-label,
+.nav-menu-item:hover .mantine-NavLink-section {
+  color: var(--blue-9) !important;
+}
+
+/* Sidebar toggle icon hover */
+.sidebar-toggle-icon:hover {
+  background-color: var(--blue-4) !important;
+  color: var(--blue-9) !important;
+}
+
+/* User avatar icon hover */
+.user-avatar-icon:hover {
+  background-color: var(--blue-4) !important;
+  color: var(--blue-9) !important;
+}
+
+/* Wallet edit icon hover */
+.wallet-edit-icon:hover {
+  background-color: var(--blue-4) !important;
+  color: var(--blue-9) !important;
+}

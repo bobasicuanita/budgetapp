@@ -9,6 +9,7 @@ import Login from '../pages/Login';
 import VerifyOtp from '../pages/VerifyOtp';
 import Onboarding from '../pages/Onboarding';
 import Dashboard from '../pages/Dashboard';
+import Wallets from '../pages/Wallets';
 // import Settings from '../pages/Settings';
 // import Budgets from '../pages/Budgets';
 // import Transactions from '../pages/Transactions';
@@ -56,6 +57,17 @@ function AppRoutes() {
             <ProtectedRoute>
               <RequireOnboarding>
                 <Dashboard />
+              </RequireOnboarding>
+            </ProtectedRoute>
+          } 
+        />
+        
+        <Route 
+          path="/wallets" 
+          element={
+            <ProtectedRoute>
+              <RequireOnboarding>
+                <Wallets />
               </RequireOnboarding>
             </ProtectedRoute>
           } 

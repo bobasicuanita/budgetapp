@@ -43,11 +43,12 @@ function Onboarding() {
 
       return response.json();
     },
-    onSuccess: () => {
-      // Invalidate onboarding status cache to force refetch
-      queryClient.invalidateQueries({ queryKey: ['onboarding-status'] });
+    onSuccess: async () => {
+      // Invalidate and refetch onboarding status cache before navigating
+      await queryClient.invalidateQueries({ queryKey: ['onboarding-status'] });
+      await queryClient.refetchQueries({ queryKey: ['onboarding-status'] });
       // Navigate to dashboard
-      navigate('/dashboard');
+      navigate('/dashboard', { replace: true });
     },
     onError: (error) => {
       alert(error.message);
