@@ -1,6 +1,7 @@
 import { AppShell, Group, NavLink, Text, Stack, Box, Menu, ActionIcon } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { 
   IconHome, 
   IconWallet, 
@@ -21,19 +22,7 @@ function AppLayout({ children }) {
   const [desktopOpened, { toggle: toggleDesktop }] = useDisclosure(true);
   const navigate = useNavigate();
   const location = useLocation();
-
-  // Get current page name from path
-  const getPageName = () => {
-    const pathMap = {
-      '/dashboard': 'Dashboard',
-      '/wallets': 'Wallets',
-      '/transactions': 'Transactions',
-      '/reports': 'Reports',
-      '/settings': 'Settings',
-      '/profile': 'Profile'
-    };
-    return pathMap[location.pathname] || 'Dashboard';
-  };
+  const queryClient = useQueryClient();
 
   const handleLogout = async () => {
     try {
@@ -48,8 +37,13 @@ function AppLayout({ children }) {
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
-      // Clear local storage and redirect
+      // Clear local storage
       localStorage.removeItem('accessToken');
+      
+      // Clear all React Query cache
+      queryClient.clear();
+      
+      // Redirect to login
       navigate('/login');
     }
   };
@@ -64,85 +58,137 @@ function AppLayout({ children }) {
 
   return (
     <AppShell
-      header={{ height: 60 }}
       navbar={{
-        width: 220,
+        width: desktopOpened ? 220 : 70,
         breakpoint: 'sm',
-        collapsed: { mobile: !mobileOpened, desktop: !desktopOpened },
+        collapsed: { mobile: !mobileOpened },
       }}
       padding="md"
       styles={{
         main: {
           backgroundColor: 'var(--blue-2)'
         },
-        header: {
-          backgroundColor: 'var(--blue-2)',
-          borderBottom: '1px solid var(--gray-4)'
-        },
         navbar: {
           backgroundColor: 'var(--blue-2)',
-          borderRight: '1px solid var(--gray-4)'
+          border: 'none',
+          transition: 'width 0.2s ease'
         }
       }}
     >
-      <AppShell.Header>
-        <Group h="100%" pl="md" pr="md" justify="space-between">
-          <Group gap="sm">
-            <ActionIcon
-              onClick={toggleMobile}
-              hiddenFrom="sm"
-              size="lg"
-              variant="subtle"
-              className="sidebar-toggle-icon"
-              style={{ color: 'var(--gray-11)' }}
-            >
-              <IconMenu2 size={20} />
-            </ActionIcon>
-            <ActionIcon
-              onClick={toggleDesktop}
-              visibleFrom="sm"
-              radius="sm" 
-              size="md"
-              variant="subtle"
-              color="gray.11"
-              className="sidebar-toggle-icon"
-              style={{ color: 'var(--gray-11)', marginLeft: '6px' }}
-            >
-              {desktopOpened ? (
-                <IconLayoutSidebarLeftCollapse size={20} />
-              ) : (
-                <IconLayoutSidebarLeftExpand size={20} />
+      <AppShell.Navbar p="md">
+        <Stack justify="space-between" h="100%">
+          {/* Sidebar Header */}
+          <Stack gap="md">
+            <Group gap="sm" mb="sm" wrap="nowrap" ml="4px">
+              <ActionIcon
+                onClick={toggleMobile}
+                hiddenFrom="sm"
+                size="lg"
+                variant="subtle"
+                className="sidebar-toggle-icon"
+                style={{ color: 'var(--gray-11)' }}
+              >
+                <IconMenu2 size={20} />
+              </ActionIcon>
+              <ActionIcon
+                onClick={toggleDesktop}
+                visibleFrom="sm"
+                radius="md" 
+                size="lg"
+                variant="subtle"
+                color="gray.11"
+                className="sidebar-toggle-icon"
+                style={{ color: 'var(--gray-11)', flexShrink: 0 }}
+              >
+                {desktopOpened ? (
+                  <IconLayoutSidebarLeftCollapse size={20} />
+                ) : (
+                  <IconLayoutSidebarLeftExpand size={20} />
+                )}
+              </ActionIcon>
+              {desktopOpened && (
+                <Text fw={700} size="xl" style={{ color: 'var(--blue-9)', whiteSpace: 'nowrap' }}>
+                  BudgetApp
+                </Text>
               )}
-            </ActionIcon>
-            <Text fw={600} size="lg" style={{ color: 'var(--gray-12)' }}>
-              {getPageName()}
-            </Text>
-          </Group>
+            </Group>
 
-          <Group>
-            <ActionIcon
-              size="lg"
-              variant="subtle"
-              className="user-avatar-icon"
-              style={{ color: 'var(--gray-11)' }}
+            {/* Navigation Items */}
+            <Stack gap="xs">
+              {navItems.map((item) => {
+                const isActive = location.pathname === item.path;
+                return (
+                  <NavLink
+                    key={item.path}
+                    label={desktopOpened ? item.label : ''}
+                    leftSection={<item.icon size={20} stroke={1.5} />}
+                    active={isActive}
+                    onClick={() => {
+                      navigate(item.path);
+                      toggleMobile(); // Close mobile menu after navigation
+                    }}
+                    className="nav-menu-item"
+                    style={{
+                      borderRadius: '8px',
+                      color: isActive ? 'var(--blue-9)' : undefined,
+                      backgroundColor: isActive ? 'var(--blue-4)' : undefined,
+                      justifyContent: desktopOpened ? 'flex-start' : 'center'
+                    }}
+                    {...(!desktopOpened && {
+                      styles: {
+                        section: {
+                          marginRight: 0
+                        }
+                      }
+                    })}
+                  />
+                );
+              })}
+            </Stack>
+          </Stack>
+
+          {/* Bottom Section */}
+          <Stack gap="xs">
+            <NavLink
+              label={desktopOpened ? "Notifications" : ''}
+              leftSection={<IconBell size={20} stroke={1.5} />}
               onClick={() => {
                 // TODO: Handle notifications
                 console.log('Notifications clicked');
               }}
-            >
-              <IconBell size={20} />
-            </ActionIcon>
-            
-            <Menu shadow="md" width={200}>
+              className="nav-menu-item"
+              style={{
+                borderRadius: '8px',
+                justifyContent: desktopOpened ? 'flex-start' : 'center'
+              }}
+              {...(!desktopOpened && {
+                styles: {
+                  section: {
+                    marginRight: 0
+                  }
+                }
+              })}
+            />
+
+            <Menu shadow="md" width={200} position="right-end">
               <Menu.Target>
-                <ActionIcon
-                  size="lg"
-                  variant="subtle"
-                  className="user-avatar-icon"
-                  style={{ color: 'var(--gray-11)' }}
-                >
-                  <IconUser size={20} />
-                </ActionIcon>
+                <NavLink
+                  label={desktopOpened ? "Account" : ''}
+                  leftSection={<IconUser size={20} stroke={1.5} />}
+                  className="nav-menu-item"
+                  style={{
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    justifyContent: desktopOpened ? 'flex-start' : 'center'
+                  }}
+                  {...(!desktopOpened && {
+                    styles: {
+                      section: {
+                        marginRight: 0
+                      }
+                    }
+                  })}
+                />
               </Menu.Target>
 
               <Menu.Dropdown>
@@ -170,47 +216,25 @@ function AppLayout({ children }) {
                 </Menu.Item>
               </Menu.Dropdown>
             </Menu>
-          </Group>
-        </Group>
-      </AppShell.Header>
 
-      <AppShell.Navbar p="md">
-        <Stack justify="space-between" h="100%">
-          <Stack gap="xs">
-            {navItems.map((item) => {
-              const isActive = location.pathname === item.path;
-              return (
-                <NavLink
-                  key={item.path}
-                  label={item.label}
-                  leftSection={<item.icon size={20} stroke={1.5} />}
-                  active={isActive}
-                  onClick={() => {
-                    navigate(item.path);
-                    toggleMobile(); // Close mobile menu after navigation
-                  }}
-                  className="nav-menu-item"
-                  style={{
-                    borderRadius: '8px',
-                    color: isActive ? 'var(--blue-9)' : undefined,
-                    backgroundColor: isActive ? 'var(--blue-4)' : undefined
-                  }}
-                />
-              );
-            })}
-          </Stack>
-
-          <Box>
             <NavLink
-              label="Logout"
+              label={desktopOpened ? "Logout" : ''}
               leftSection={<IconLogout size={20} stroke={1.5} />}
               onClick={handleLogout}
+              className="nav-menu-item"
               style={{
                 borderRadius: '8px',
+                justifyContent: desktopOpened ? 'flex-start' : 'center'
               }}
-              color="red"
+              {...(!desktopOpened && {
+                styles: {
+                  section: {
+                    marginRight: 0
+                  }
+                }
+              })}
             />
-          </Box>
+          </Stack>
         </Stack>
       </AppShell.Navbar>
 

@@ -2,6 +2,8 @@
  * API utility for making authenticated requests with automatic token refresh
  */
 
+import { queryClient } from '../main.jsx';
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 // Refresh the access token using the refresh token (httpOnly cookie)
@@ -20,9 +22,13 @@ export const refreshAccessToken = async () => {
     localStorage.setItem('accessToken', data.accessToken);
     return data.accessToken;
   } catch (error) {
-    // If refresh fails, clear token and redirect to login
+    // If refresh fails, clear everything and redirect to login
     localStorage.removeItem('accessToken');
     localStorage.removeItem('user');
+    
+    // Clear React Query cache to ensure fresh state for next login
+    queryClient.clear();
+    
     window.location.href = '/login';
     throw error;
   }

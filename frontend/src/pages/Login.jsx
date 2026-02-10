@@ -122,6 +122,7 @@ function Login() {
                   className="text-input"
                   size='md'
                   disabled={loginMutation.isPending}
+                  autoFocus
                   styles={{
                     label: { fontSize: '12px', fontWeight: 500 }
                   }}
@@ -151,7 +152,7 @@ function Login() {
           <Button 
             onClick={handleSubmit}
             onMouseDown={createRipple}
-            color="blue.8"
+            color="blue.9"
             size="md"
             fullWidth
             disabled={loginMutation.isPending}

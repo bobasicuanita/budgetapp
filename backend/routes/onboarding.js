@@ -1,6 +1,7 @@
 import express from "express";
 import sql from "../config/database.js";
 import { authenticateToken } from "../middleware/auth.js";
+import { isValidName, validationMessages } from "../utils/validation.js";
 
 const router = express.Router();
 
@@ -26,6 +27,31 @@ router.post("/complete", authenticateToken, async (req, res) => {
       });
     }
 
+    // Validate name fields (if provided)
+    if (first_name && !isValidName(first_name)) {
+      return res.status(400).json({ 
+        error: validationMessages.name.invalid
+      });
+    }
+
+    if (first_name && first_name.length > 50) {
+      return res.status(400).json({ 
+        error: "First name must not exceed 50 characters"
+      });
+    }
+
+    if (last_name && !isValidName(last_name)) {
+      return res.status(400).json({ 
+        error: validationMessages.name.invalid
+      });
+    }
+
+    if (last_name && last_name.length > 50) {
+      return res.status(400).json({ 
+        error: "Last name must not exceed 50 characters"
+      });
+    }
+
     // Validate wallet type
     const validTypes = ['cash', 'bank', 'digital_wallet'];
     if (!validTypes.includes(wallet.type)) {
@@ -34,11 +60,21 @@ router.post("/complete", authenticateToken, async (req, res) => {
       });
     }
 
+    // Validate wallet name length (if provided)
+    if (wallet.name && wallet.name.length > 32) {
+      return res.status(400).json({ 
+        error: "Wallet name must not exceed 32 characters"
+      });
+    }
+
     // Default starting_balance to 0 if not provided
     const startingBalance = wallet.starting_balance ?? 0;
     
     // Default currency to base_currency if not provided
     const walletCurrency = wallet.currency || base_currency;
+    
+    // Default include_in_balance to true if not provided
+    const includeInBalance = wallet.include_in_balance ?? true;
 
     // Auto-assign icon and color based on type
     const { icon, color } = getWalletDefaults(wallet.type);
@@ -75,7 +111,8 @@ router.post("/complete", authenticateToken, async (req, res) => {
           starting_balance, 
           current_balance,
           icon,
-          color
+          color,
+          include_in_balance
         )
         VALUES (
           ${userId},
@@ -85,7 +122,8 @@ router.post("/complete", authenticateToken, async (req, res) => {
           ${startingBalance},
           ${startingBalance},
           ${wallet.icon || icon},
-          ${wallet.color || color}
+          ${wallet.color || color},
+          ${includeInBalance}
         )
         RETURNING *
       `;
@@ -145,6 +183,13 @@ router.get("/wallets", authenticateToken, async (req, res) => {
   const userId = req.user.userId;
 
   try {
+    // Get user's base currency
+    const [user] = await sql`
+      SELECT base_currency 
+      FROM users 
+      WHERE id = ${userId}
+    `;
+
     const wallets = await sql`
       SELECT 
         id,
@@ -156,6 +201,7 @@ router.get("/wallets", authenticateToken, async (req, res) => {
         icon,
         color,
         is_active,
+        include_in_balance,
         created_at
       FROM wallets
       WHERE user_id = ${userId} AND is_active = TRUE
@@ -169,7 +215,8 @@ router.get("/wallets", authenticateToken, async (req, res) => {
 
     res.json({
       wallets,
-      totalNetWorth
+      totalNetWorth,
+      baseCurrency: user?.base_currency || 'USD'
     });
 
   } catch (error) {
@@ -183,7 +230,7 @@ router.get("/wallets", authenticateToken, async (req, res) => {
  * Add a new wallet
  */
 router.post("/wallets", authenticateToken, async (req, res) => {
-  const { name, type, currency, starting_balance, icon, color } = req.body;
+  const { name, type, currency, starting_balance, icon, color, include_in_balance } = req.body;
   const userId = req.user.userId;
 
   try {
@@ -195,8 +242,18 @@ router.post("/wallets", authenticateToken, async (req, res) => {
       });
     }
 
+    // Validate wallet name length (if provided)
+    if (name && name.length > 32) {
+      return res.status(400).json({ 
+        error: "Wallet name must not exceed 32 characters"
+      });
+    }
+
     // Default starting_balance to 0 if not provided
     const startingBalance = starting_balance ?? 0;
+    
+    // Default include_in_balance to true if not provided
+    const includeInBalance = include_in_balance ?? true;
 
     // Get user's base currency as default
     const [user] = await sql`SELECT base_currency FROM users WHERE id = ${userId}`;
@@ -218,7 +275,8 @@ router.post("/wallets", authenticateToken, async (req, res) => {
         starting_balance,
         current_balance,
         icon,
-        color
+        color,
+        include_in_balance
       )
       VALUES (
         ${userId},
@@ -228,7 +286,8 @@ router.post("/wallets", authenticateToken, async (req, res) => {
         ${startingBalance},
         ${startingBalance},
         ${icon || defaultIcon},
-        ${color || defaultColor}
+        ${color || defaultColor},
+        ${includeInBalance}
       )
       RETURNING *
     `;
@@ -241,6 +300,78 @@ router.post("/wallets", authenticateToken, async (req, res) => {
   } catch (error) {
     console.error("Error creating wallet:", error);
     res.status(500).json({ error: "Failed to create wallet" });
+  }
+});
+
+/**
+ * PUT /api/onboarding/wallets/:id
+ * Update an existing wallet
+ */
+router.put("/wallets/:id", authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { name, type, currency, starting_balance, include_in_balance } = req.body;
+  const userId = req.user.userId;
+
+  try {
+    // Verify wallet belongs to user
+    const [existingWallet] = await sql`
+      SELECT * FROM wallets 
+      WHERE id = ${id} AND user_id = ${userId}
+    `;
+
+    if (!existingWallet) {
+      return res.status(404).json({ error: "Wallet not found" });
+    }
+
+    // Validate wallet type (currency-based accounts only)
+    if (type) {
+      const validTypes = ['cash', 'bank', 'digital_wallet'];
+      if (!validTypes.includes(type)) {
+        return res.status(400).json({ 
+          error: `Invalid wallet type. Must be one of: ${validTypes.join(', ')}` 
+        });
+      }
+    }
+
+    // Validate wallet name length (if provided)
+    if (name && name.length > 50) {
+      return res.status(400).json({ 
+        error: "Wallet name must not exceed 50 characters"
+      });
+    }
+
+    // Build update object with only provided fields
+    const updates = {};
+    if (name !== undefined) updates.name = name;
+    if (type !== undefined) {
+      updates.type = type;
+      // Update icon and color based on new type
+      const { icon, color } = getWalletDefaults(type);
+      updates.icon = icon;
+      updates.color = color;
+    }
+    if (currency !== undefined) updates.currency = currency.toUpperCase();
+    if (starting_balance !== undefined) updates.starting_balance = starting_balance;
+    if (include_in_balance !== undefined) updates.include_in_balance = include_in_balance;
+
+    // Update wallet
+    const [updatedWallet] = await sql`
+      UPDATE wallets 
+      SET 
+        ${sql(updates)},
+        updated_at = NOW()
+      WHERE id = ${id} AND user_id = ${userId}
+      RETURNING *
+    `;
+
+    res.status(200).json({
+      message: "Wallet updated successfully",
+      wallet: updatedWallet
+    });
+
+  } catch (error) {
+    console.error("Error updating wallet:", error);
+    res.status(500).json({ error: "Failed to update wallet" });
   }
 });
 

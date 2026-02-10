@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, Title, Text, Flex, Stack, Box, PinInput, Anchor, Loader, Group } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
@@ -10,6 +10,7 @@ import { useRipple } from '../hooks/useRipple';
 function VerifyOtp() {
   const navigate = useNavigate();
   const location = useLocation();
+  const queryClient = useQueryClient();
   const email = location.state?.email || '';
   const rememberMe = location.state?.rememberMe || false;
   const isMobile = useMediaQuery('(max-width: 576px)');
@@ -40,6 +41,10 @@ function VerifyOtp() {
     onSuccess: (data) => {
       // Clear any errors
       setVerificationError('');
+      
+      // Clear React Query cache to ensure fresh data for this user
+      queryClient.clear();
+      
       // Store access token (short-lived)
       localStorage.setItem('accessToken', data.accessToken);
       // Store user info if provided

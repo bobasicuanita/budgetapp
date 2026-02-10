@@ -74,6 +74,20 @@ export const colors = {
   yellow10: '#f3dd45',
   yellow11: '#897a00',
   yellow12: '#413d23',
+
+  // Purple scale
+  purple1: '#fdfcff',
+  purple2: '#fbf8fe',
+  purple3: '#f5eeff',
+  purple4: '#efe3fe',
+  purple5: '#e7d6fb',
+  purple6: '#dcc6f6',
+  purple7: '#ceb0ef',
+  purple8: '#bc94e6',
+  purple9: '#8e4ec6',
+  purple10: '#7f43b3',
+  purple11: '#8145b5',
+  purple12: '#411f5f',
 };
 
 // Export individual scales for convenience
@@ -150,4 +164,19 @@ export const yellow = {
   10: colors.yellow10,
   11: colors.yellow11,
   12: colors.yellow12,
+};
+
+export const purple = {
+  1: colors.purple1,
+  2: colors.purple2,
+  3: colors.purple3,
+  4: colors.purple4,
+  5: colors.purple5,
+  6: colors.purple6,
+  7: colors.purple7,
+  8: colors.purple8,
+  9: colors.purple9,
+  10: colors.purple10,
+  11: colors.purple11,
+  12: colors.purple12,
 };

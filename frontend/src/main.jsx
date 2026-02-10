@@ -3,11 +3,13 @@ import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MantineProvider, createTheme } from '@mantine/core'
 import { Notifications } from '@mantine/notifications'
+import { ModalsProvider } from '@mantine/modals'
 import { colors } from './theme/colors'
 import './index.css'
 import App from './App.jsx'
 
-const queryClient = new QueryClient()
+// Export queryClient so it can be used outside React components (e.g., in api.js)
+export const queryClient = new QueryClient()
 
 // Mantine theme with custom Radix Colors
 const theme = createTheme({
@@ -46,10 +48,12 @@ const theme = createTheme({
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <MantineProvider theme={theme}>
-      <Notifications position="top-right" />
-      <QueryClientProvider client={queryClient}>
-        <App />
-      </QueryClientProvider>
+      <ModalsProvider>
+        <Notifications position="top-right" />
+        <QueryClientProvider client={queryClient}>
+          <App />
+        </QueryClientProvider>
+      </ModalsProvider>
     </MantineProvider>
   </StrictMode>,
 )

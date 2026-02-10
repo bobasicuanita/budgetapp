@@ -50,3 +50,22 @@ export const validateEmail = (email) => {
   
   return true;
 };
+
+/**
+ * Validates name fields (first name, last name)
+ * Allows letters (including international), hyphens, apostrophes, and spaces
+ * @param {string} name - Name to validate
+ * @returns {boolean} - True if name is valid
+ */
+export const validateName = (name) => {
+  // Allow empty string
+  if (name === '') return true;
+  
+  // Unicode regex that matches:
+  // - Letters from any language (\p{L})
+  // - Hyphens (-)
+  // - Apostrophes (')
+  // - Spaces
+  const nameRegex = /^[\p{L}\s'-]+$/u;
+  return nameRegex.test(name);
+};

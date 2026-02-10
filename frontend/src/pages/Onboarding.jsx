@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Title, Text, TextInput, Flex, Button, Stack, Box, Stepper, Select, NumberInput, Group, Anchor, Card } from '@mantine/core';
+import { Title, Text, TextInput, Flex, Button, Stack, Box, Stepper, Select, NumberInput, Group, Anchor, Card, Checkbox } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { FaUser, FaDollarSign, FaWallet } from 'react-icons/fa';
 // Colors are now accessed via CSS variables (var(--color-name))
@@ -9,7 +9,8 @@ import { FaUser, FaDollarSign, FaWallet } from 'react-icons/fa';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRipple } from '../hooks/useRipple';
 import { authenticatedFetch } from '../utils/api';
-import { GROUPED_CURRENCY_OPTIONS, ALL_CURRENCIES } from '../data/currencies';
+import { validateName } from '../utils/validators';
+import { GROUPED_CURRENCY_OPTIONS, ALL_CURRENCIES, getCurrencySymbol } from '../data/currencies';
 import { WALLET_TYPES } from '../data/walletTypes';
 import { CountryFlag } from '../components/CountryFlag';
 
@@ -25,9 +26,17 @@ function Onboarding() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [baseCurrency, setBaseCurrency] = useState(null);
-  const [walletType, setWalletType] = useState('cash');
+  const [walletType, setWalletType] = useState(null);
   const [walletName, setWalletName] = useState('');
   const [startingBalance, setStartingBalance] = useState(0);
+  const [includeInBalance, setIncludeInBalance] = useState(true);
+
+  const handleNameChange = (value, setter) => {
+    // Only update if the value is valid
+    if (validateName(value)) {
+      setter(value);
+    }
+  };
 
   const completeMutation = useMutation({
     mutationFn: async (data) => {
@@ -50,9 +59,6 @@ function Onboarding() {
       // Navigate to dashboard
       navigate('/dashboard', { replace: true });
     },
-    onError: (error) => {
-      alert(error.message);
-    }
   });
 
   const handleNext = () => {
@@ -79,7 +85,8 @@ function Onboarding() {
       wallet: {
         type: walletType,
         name: walletName || undefined,
-        starting_balance: startingBalance ?? 0 // Default to 0 if empty
+        starting_balance: startingBalance ?? 0, // Default to 0 if empty
+        include_in_balance: includeInBalance
       }
     };
 
@@ -91,7 +98,9 @@ function Onboarding() {
     const handleKeyPress = (e) => {
       if (e.key === 'Enter') {
         // Check if button should be disabled
-        const isDisabled = completeMutation.isPending || (activeStep === 1 && !baseCurrency);
+        const isDisabled = completeMutation.isPending || 
+                          (activeStep === 1 && !baseCurrency) || 
+                          (activeStep === 2 && !walletType);
         
         if (!isDisabled) {
           if (activeStep === 0) {
@@ -164,7 +173,7 @@ function Onboarding() {
             </Stepper>
 
             {/* Animated Step Content */}
-            <Box style={{ height: '380px', position: 'relative' }} w={{ base: '90%', sm: 400 }} mx="auto" mt="60px">
+            <Box style={{ height: '440px', position: 'relative' }} w={{ base: '90%', sm: 400 }} mx="auto" mt="60px">
               <AnimatePresence mode="wait" custom={activeStep}>
                 {activeStep === 0 && (
                   <motion.div
@@ -186,9 +195,11 @@ function Onboarding() {
                         label="First Name (Optional)"
                         placeholder="John"
                         value={firstName}
-                        onChange={(e) => setFirstName(e.target.value)}
+                        onChange={(e) => handleNameChange(e.target.value, setFirstName)}
                         className="text-input"
                         size="md"
+                        autoFocus
+                        maxLength={50}
                         styles={{
                           label: { fontSize: '12px', fontWeight: 500 }
                         }}
@@ -198,9 +209,10 @@ function Onboarding() {
                         label="Last Name (Optional)"
                         placeholder="Doe"
                         value={lastName}
-                        onChange={(e) => setLastName(e.target.value)}
+                        onChange={(e) => handleNameChange(e.target.value, setLastName)}
                         className="text-input"
                         size="md"
+                        maxLength={50}
                         styles={{
                           label: { fontSize: '12px', fontWeight: 500 }
                         }}
@@ -234,6 +246,7 @@ function Onboarding() {
                         searchable
                         clearable
                         size="md"
+                        autoFocus
                         className={baseCurrency ? 'text-input currency-select-with-flag' : 'text-input'}
                         maxDropdownHeight={200}
                         comboboxProps={{ 
@@ -287,19 +300,6 @@ function Onboarding() {
                         A wallet is any place you keep money - bank, cash or digital. You can create more later.
                       </Text>
                       
-                      <Select
-                        label="Wallet Type"
-                        placeholder="Select wallet type"
-                        value={walletType}
-                        onChange={setWalletType}
-                        data={WALLET_TYPES}
-                        size="md"
-                        className="text-input"
-                        styles={{
-                          label: { fontSize: '12px', fontWeight: 500 }
-                        }}
-                      />
-                      
                       <TextInput
                         label="Wallet Name (Optional)"
                         placeholder="e.g., Main Checking"
@@ -307,6 +307,22 @@ function Onboarding() {
                         onChange={(e) => setWalletName(e.target.value)}
                         className="text-input"
                         size="md"
+                        autoFocus
+                        maxLength={32}
+                        styles={{
+                          label: { fontSize: '12px', fontWeight: 500 }
+                        }}
+                      />
+                      
+                      <Select
+                        label="Wallet Type"
+                        placeholder="Select wallet type"
+                        value={walletType}
+                        onChange={setWalletType}
+                        data={WALLET_TYPES}
+                        size="md"
+                        clearable
+                        className="text-input"
                         styles={{
                           label: { fontSize: '12px', fontWeight: 500 }
                         }}
@@ -321,11 +337,24 @@ function Onboarding() {
                         thousandSeparator=","
                         size="md"
                         className="text-input"
-                        prefix={baseCurrency ? ALL_CURRENCIES.find(c => c.code === baseCurrency)?.symbol + ' ' : ''}
+                        prefix={baseCurrency ? getCurrencySymbol(baseCurrency) + ' ' : ''}
                         styles={{
                           label: { fontSize: '12px', fontWeight: 500 }
                         }}
                       />
+                      
+                      <Box>
+                        <Checkbox
+                          label="Include in available balance"
+                          checked={includeInBalance}
+                          onChange={(event) => setIncludeInBalance(event.currentTarget.checked)}
+                          size="sm"
+                          color="blue.8"
+                        />
+                        <Text size="xs" c="gray.9" mt={4} ml={28}>
+                          Used to calculate how much money you have available to spend.
+                        </Text>
+                      </Box>
                     </Stack>
                   </motion.div>
                 )}
@@ -337,11 +366,11 @@ function Onboarding() {
               <Button
                 onClick={handleNext}
                 onMouseDown={createRipple}
-                color="blue.8"
+                color="blue.9"
                 size="md"
                 fullWidth
                 loading={completeMutation.isPending}
-                disabled={completeMutation.isPending || (activeStep === 1 && !baseCurrency)}
+                disabled={completeMutation.isPending || (activeStep === 1 && !baseCurrency) || (activeStep === 2 && !walletType)}
               >
                 {activeStep === 2 ? 'Start' : 'Continue'}
               </Button>

@@ -26,3 +26,9 @@
   background-color: var(--blue-4) !important;
   color: var(--blue-9) !important;
 }
+
+/* Remove padding from accordion content */
+.mantine-Accordion-content {
+  padding-bottom: 0 !important;
+  padding-top: 0 !important;
+}

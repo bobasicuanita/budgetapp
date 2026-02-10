@@ -160,18 +160,41 @@ export const getCurrencyByCode = (code) => {
   return ALL_CURRENCIES.find(c => c.code === code);
 };
 
+// Helper function to get currency symbol (with country prefix if needed)
+export const getCurrencySymbol = (currencyCode) => {
+  try {
+    // Use Intl to get the properly formatted currency symbol
+    const formatted = new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: currencyCode,
+    }).format(0);
+    
+    // Extract just the currency symbol/code (remove the number and whitespace)
+    return formatted.replace(/[\d.,\s]/g, '');
+  } catch {
+    // Fallback to simple symbol from our data
+    const currency = getCurrencyByCode(currencyCode);
+    return currency?.symbol || currencyCode;
+  }
+};
+
 // Helper function to format currency amount
 export const formatCurrency = (amount, currencyCode) => {
   const currency = getCurrencyByCode(currencyCode);
   if (!currency) return `${amount}`;
   
   try {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: currencyCode,
+    // Get the currency symbol (with country prefix if needed)
+    const symbol = getCurrencySymbol(currencyCode);
+    
+    // Format the number with thousand separators and decimals
+    const formattedNumber = new Intl.NumberFormat('en-US', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(amount);
+    
+    // Return symbol + space + formatted number
+    return `${symbol} ${formattedNumber}`;
   } catch {
     // Fallback if currency code is invalid
     return `${currency.symbol} ${Number(amount).toFixed(2)}`;
