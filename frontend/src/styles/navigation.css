@@ -1,4 +1,16 @@
-/* Navigation menu item hover styles */
+/* Navigation menu item styles */
+.nav-menu-item {
+  transition: all 0.2s ease !important;
+}
+
+.nav-menu-item .mantine-NavLink-section {
+  transition: margin 0.2s ease !important;
+}
+
+.nav-menu-item .mantine-NavLink-label {
+  transition: opacity 0.2s ease, width 0.2s ease !important;
+}
+
 .nav-menu-item:hover {
   background-color: var(--blue-4) !important;
   color: var(--blue-9) !important;

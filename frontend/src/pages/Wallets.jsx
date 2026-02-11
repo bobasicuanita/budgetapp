@@ -29,7 +29,7 @@ function Wallets() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['wallets'],
     queryFn: async () => {
-      const response = await authenticatedFetch('/api/onboarding/wallets');
+      const response = await authenticatedFetch('/api/wallets');
       
       if (!response.ok) {
         throw new Error('Failed to fetch wallets');
@@ -41,7 +41,7 @@ function Wallets() {
 
   const createWalletMutation = useMutation({
     mutationFn: async (walletData) => {
-      const response = await authenticatedFetch('/api/onboarding/wallets', {
+      const response = await authenticatedFetch('/api/wallets', {
         method: 'POST',
         body: JSON.stringify(walletData)
       });
@@ -68,7 +68,7 @@ function Wallets() {
 
   const updateWalletMutation = useMutation({
     mutationFn: async ({ id, walletData }) => {
-      const response = await authenticatedFetch(`/api/onboarding/wallets/${id}`, {
+      const response = await authenticatedFetch(`/api/wallets/${id}`, {
         method: 'PUT',
         body: JSON.stringify(walletData)
       });
@@ -157,10 +157,11 @@ function Wallets() {
           <Title order={1}>Wallets</Title>
           <Button
             color="blue.9"
-            size="md"
+            radius="sm"
             leftSection={<IconPlus size={18} />}
             onMouseDown={createRipple}
             onClick={handleAddWallet}
+            w={200}
           >
             Add Wallet
           </Button>
@@ -277,8 +278,12 @@ function Wallets() {
                                         <Badge
                                           size="sm"
                                           mt="4px"
-                                          color={wallet.include_in_balance ? "green" : "gray"}
                                           variant="light"
+                                          styles={{
+                                            root: {
+                                              color: wallet.include_in_balance ? 'var(--green-9)' : 'var(--gray-9)'
+                                            }
+                                          }}
                                         >
                                           {wallet.include_in_balance ? "Included" : "Excluded"}
                                         </Badge>

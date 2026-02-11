@@ -10,9 +10,9 @@ import VerifyOtp from '../pages/VerifyOtp';
 import Onboarding from '../pages/Onboarding';
 import Dashboard from '../pages/Dashboard';
 import Wallets from '../pages/Wallets';
+import Transactions from '../pages/Transactions';
 // import Settings from '../pages/Settings';
 // import Budgets from '../pages/Budgets';
-// import Transactions from '../pages/Transactions';
 // import NotFound from '../pages/NotFound';
 
 function AppRoutes() {
@@ -73,6 +73,17 @@ function AppRoutes() {
           } 
         />
         
+        <Route 
+          path="/transactions" 
+          element={
+            <ProtectedRoute>
+              <RequireOnboarding>
+                <Transactions />
+              </RequireOnboarding>
+            </ProtectedRoute>
+          } 
+        />
+        
         {/* <Route 
           path="/settings" 
           element={
@@ -87,15 +98,6 @@ function AppRoutes() {
           element={
             <ProtectedRoute>
               <Budgets />
-            </ProtectedRoute>
-          } 
-        /> */}
-        
-        {/* <Route 
-          path="/transactions" 
-          element={
-            <ProtectedRoute>
-              <Transactions />
             </ProtectedRoute>
           } 
         /> */}

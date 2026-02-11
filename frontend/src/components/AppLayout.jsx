@@ -2,6 +2,7 @@ import { AppShell, Group, NavLink, Text, Stack, Box, Menu, ActionIcon } from '@m
 import { useDisclosure } from '@mantine/hooks';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
+import { useState, useEffect } from 'react';
 import { 
   IconHome, 
   IconWallet, 
@@ -19,10 +20,25 @@ import '../styles/navigation.css';
 
 function AppLayout({ children }) {
   const [mobileOpened, { toggle: toggleMobile }] = useDisclosure();
-  const [desktopOpened, { toggle: toggleDesktop }] = useDisclosure(true);
+  
+  // Initialize sidebar state from localStorage, default to true (open)
+  const [desktopOpened, setDesktopOpened] = useState(() => {
+    const saved = localStorage.getItem('sidebarOpen');
+    return saved !== null ? JSON.parse(saved) : true;
+  });
+
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
+
+  // Save sidebar state to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('sidebarOpen', JSON.stringify(desktopOpened));
+  }, [desktopOpened]);
+
+  const toggleDesktop = () => {
+    setDesktopOpened(prev => !prev);
+  };
 
   const handleLogout = async () => {
     try {
@@ -106,11 +122,20 @@ function AppLayout({ children }) {
                   <IconLayoutSidebarLeftExpand size={20} />
                 )}
               </ActionIcon>
-              {desktopOpened && (
-                <Text fw={700} size="xl" style={{ color: 'var(--blue-9)', whiteSpace: 'nowrap' }}>
-                  BudgetApp
-                </Text>
-              )}
+              <Text 
+                fw={700} 
+                size="xl" 
+                style={{ 
+                  color: 'var(--blue-9)', 
+                  whiteSpace: 'nowrap',
+                  opacity: desktopOpened ? 1 : 0,
+                  width: desktopOpened ? 'auto' : 0,
+                  overflow: 'hidden',
+                  transition: 'opacity 0.2s ease, width 0.2s ease'
+                }}
+              >
+                BudgetApp
+              </Text>
             </Group>
 
             {/* Navigation Items */}
@@ -120,7 +145,7 @@ function AppLayout({ children }) {
                 return (
                   <NavLink
                     key={item.path}
-                    label={desktopOpened ? item.label : ''}
+                    label={item.label}
                     leftSection={<item.icon size={20} stroke={1.5} />}
                     active={isActive}
                     onClick={() => {
@@ -131,16 +156,22 @@ function AppLayout({ children }) {
                     style={{
                       borderRadius: '8px',
                       color: isActive ? 'var(--blue-9)' : undefined,
+                      justifyContent: desktopOpened ? 'flex-start' : 'center',
                       backgroundColor: isActive ? 'var(--blue-4)' : undefined,
-                      justifyContent: desktopOpened ? 'flex-start' : 'center'
                     }}
-                    {...(!desktopOpened && {
-                      styles: {
+                    styles={{
+                      label: {
+                        opacity: desktopOpened ? 1 : 0,
+                        width: desktopOpened ? 'auto' : 0,
+                        overflow: 'hidden',
+                        whiteSpace: 'nowrap'
+                      },
+                      ...(!desktopOpened && {
                         section: {
                           marginRight: 0
                         }
-                      }
-                    })}
+                      })
+                    }}
                   />
                 );
               })}
@@ -150,7 +181,7 @@ function AppLayout({ children }) {
           {/* Bottom Section */}
           <Stack gap="xs">
             <NavLink
-              label={desktopOpened ? "Notifications" : ''}
+              label="Notifications"
               leftSection={<IconBell size={20} stroke={1.5} />}
               onClick={() => {
                 // TODO: Handle notifications
@@ -158,36 +189,48 @@ function AppLayout({ children }) {
               }}
               className="nav-menu-item"
               style={{
-                borderRadius: '8px',
-                justifyContent: desktopOpened ? 'flex-start' : 'center'
+                justifyContent: desktopOpened ? 'flex-start' : 'center',
+                borderRadius: '8px'
               }}
-              {...(!desktopOpened && {
-                styles: {
+              styles={{
+                label: {
+                  opacity: desktopOpened ? 1 : 0,
+                  width: desktopOpened ? 'auto' : 0,
+                  overflow: 'hidden',
+                  whiteSpace: 'nowrap'
+                },
+                ...(!desktopOpened && {
                   section: {
                     marginRight: 0
                   }
-                }
-              })}
+                })
+              }}
             />
 
             <Menu shadow="md" width={200} position="right-end">
               <Menu.Target>
                 <NavLink
-                  label={desktopOpened ? "Account" : ''}
+                  label="Account"
                   leftSection={<IconUser size={20} stroke={1.5} />}
                   className="nav-menu-item"
                   style={{
                     borderRadius: '8px',
-                    cursor: 'pointer',
-                    justifyContent: desktopOpened ? 'flex-start' : 'center'
+                    justifyContent: desktopOpened ? 'flex-start' : 'center',
+                    cursor: 'pointer'
                   }}
-                  {...(!desktopOpened && {
-                    styles: {
+                  styles={{
+                    label: {
+                      opacity: desktopOpened ? 1 : 0,
+                      width: desktopOpened ? 'auto' : 0,
+                      overflow: 'hidden',
+                      whiteSpace: 'nowrap'
+                    },
+                    ...(!desktopOpened && {
                       section: {
                         marginRight: 0
                       }
-                    }
-                  })}
+                    })
+                  }}
                 />
               </Menu.Target>
 
@@ -210,30 +253,16 @@ function AppLayout({ children }) {
                 <Menu.Item
                   leftSection={<IconLogout size={16} />}
                   onClick={handleLogout}
-                  color="red"
+                  styles={{
+                    item: {
+                      color: 'var(--red-9)'
+                    }
+                  }}
                 >
                   Logout
                 </Menu.Item>
               </Menu.Dropdown>
             </Menu>
-
-            <NavLink
-              label={desktopOpened ? "Logout" : ''}
-              leftSection={<IconLogout size={20} stroke={1.5} />}
-              onClick={handleLogout}
-              className="nav-menu-item"
-              style={{
-                borderRadius: '8px',
-                justifyContent: desktopOpened ? 'flex-start' : 'center'
-              }}
-              {...(!desktopOpened && {
-                styles: {
-                  section: {
-                    marginRight: 0
-                  }
-                }
-              })}
-            />
           </Stack>
         </Stack>
       </AppShell.Navbar>

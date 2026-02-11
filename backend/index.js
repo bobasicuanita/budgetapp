@@ -4,6 +4,8 @@ import cookieParser from "cookie-parser";
 import dotenv from "dotenv";
 import authRoutes from "./routes/auth.js";
 import onboardingRoutes from "./routes/onboarding.js";
+import walletRoutes from "./routes/wallets.js";
+import referenceDataRoutes from "./routes/referenceData.js";
 import { authenticateToken } from "./middleware/auth.js";
 
 dotenv.config();
@@ -34,6 +36,12 @@ app.use(authenticateToken);
 // Onboarding routes (protected)
 app.use("/api/onboarding", onboardingRoutes);
 
+// Wallet routes (protected)
+app.use("/api/wallets", walletRoutes);
+
+// User reference data (categories and tags)
+app.use("/api/user", referenceDataRoutes);
+
 // Example protected route
 app.get("/api/protected", (req, res) => {
   res.json({ 
@@ -45,7 +53,6 @@ app.get("/api/protected", (req, res) => {
 // Future protected routes go here:
 // app.use("/api/budgets", budgetRoutes);       // Will require auth
 // app.use("/api/transactions", transactionRoutes);  // Will require auth
-// app.use("/api/categories", categoryRoutes);  // Will require auth
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
