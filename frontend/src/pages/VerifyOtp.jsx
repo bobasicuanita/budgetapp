@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, Title, Text, Flex, Stack, Box, PinInput, Anchor, Loader, Group } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
-import { notifications } from '@mantine/notifications';
+import { showErrorNotification } from '../utils/notifications';
 import { GmailIcon, OutlookIcon } from '../components/SvgIcons';
 import { useRipple } from '../hooks/useRipple';
 
@@ -96,17 +96,10 @@ function VerifyOtp() {
         
         setRateLimitMessage(`Please wait. You can request a new code in ${timeStr}.`);
       } else {
-        notifications.show({
-          title: 'Error',
-          message: error.message,
-          color: 'red.8',
+        showErrorNotification(error.message, 'Error', {
           withBorder: true,
           withCloseButton: true,
-          radius: 'lg',
-          styles: {
-            title: { color: 'var(--gray-12)' },
-            description: { color: 'var(--gray-11)' }
-          }
+          radius: 'lg'
         });
       }
     },

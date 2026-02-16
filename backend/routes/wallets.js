@@ -210,7 +210,7 @@ router.put("/:id", authenticateToken, async (req, res) => {
  * Generate smart wallet name based on type and existing wallets
  * Examples: "Cash Wallet 1", "Bank Account 2", "Digital Wallet 3", etc.
  */
-async function generateWalletName(sql, userId, type) {
+export async function generateWalletName(sql, userId, type) {
   // Get wallet type display name
   const typeNames = {
     cash: 'Cash',
@@ -237,7 +237,7 @@ async function generateWalletName(sql, userId, type) {
   }
 }
 
-function getWalletDefaults(type) {
+export function getWalletDefaults(type) {
   const defaults = {
     cash: { icon: '💵', color: 'green' },
     bank: { icon: '🏦', color: 'blue' },

@@ -49,7 +49,7 @@ createRoot(document.getElementById('root')).render(
   <StrictMode>
     <MantineProvider theme={theme}>
       <ModalsProvider>
-        <Notifications position="top-right" />
+        <Notifications position="bottom-right" />
         <QueryClientProvider client={queryClient}>
           <App />
         </QueryClientProvider>

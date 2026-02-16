@@ -77,3 +77,64 @@ export const otpResendLimiter = rateLimit({
     });
   }
 });
+
+/**
+ * Rate limiter for transaction creation and updates
+ * Dual limits:
+ * - 5 requests per 10 seconds
+ * - 20 requests per hour
+ * 
+ * Per authenticated user (using req.user.userId as key)
+ */
+
+// Short-term limit: 5 requests per 10 seconds
+export const transactionShortTermLimiter = rateLimit({
+  windowMs: 10 * 1000, // 10 seconds
+  max: 5, // 5 requests per window
+  message: "You are creating transactions too quickly. Please wait a moment and try again.",
+  standardHeaders: true, // Return rate limit info in `RateLimit-*` headers
+  legacyHeaders: false, // Disable `X-RateLimit-*` headers
+  keyGenerator: (req) => {
+    // Use userId as key (requires authenticateToken middleware to run first)
+    // No fallback to IP - skip rate limiting if no user
+    return req.user?.userId?.toString();
+  },
+  handler: (req, res) => {
+    res.status(429).json({
+      error: "You are creating transactions too quickly. Please wait a moment and try again.",
+      retryAfter: Math.ceil(req.rateLimit.resetTime / 1000) // seconds until reset
+    });
+  },
+  skip: (req) => {
+    // Skip rate limiting if user is not authenticated (shouldn't happen, but safety check)
+    return !req.user?.userId;
+  }
+});
+
+// Long-term limit: 20 requests per hour
+export const transactionLongTermLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 20, // 20 requests per window
+  message: "You are creating transactions too quickly. Please wait a moment and try again.",
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    // Use userId as key (requires authenticateToken middleware to run first)
+    // No fallback to IP - skip rate limiting if no user
+    return req.user?.userId?.toString();
+  },
+  handler: (req, res) => {
+    const resetTime = new Date(req.rateLimit.resetTime);
+    const minutesUntilReset = Math.ceil((resetTime - Date.now()) / (1000 * 60));
+    
+    res.status(429).json({
+      error: "You are creating transactions too quickly. Please wait a moment and try again.",
+      retryAfter: Math.ceil((resetTime - Date.now()) / 1000), // seconds until reset
+      message: `You've reached the hourly limit. Try again in ${minutesUntilReset} minute${minutesUntilReset !== 1 ? 's' : ''}.`
+    });
+  },
+  skip: (req) => {
+    // Skip rate limiting if user is not authenticated
+    return !req.user?.userId;
+  }
+});

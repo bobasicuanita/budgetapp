@@ -19,6 +19,7 @@ router.get("/reference-data", authenticateToken, async (req, res) => {
         id,
         name,
         type,
+        icon,
         is_system,
         created_at
       FROM categories

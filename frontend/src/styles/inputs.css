@@ -27,6 +27,11 @@
   padding-left: 42px !important;
 }
 
+/* Date Input - Extra padding for calendar icon */
+.date-input-with-icon input {
+  padding-left: 40px !important;
+}
+
 /* OTP/Pin Input Styles - Applied to PinInput with .otp-input class */
 .otp-input input {
   border-color: var(--gray-10) !important;
@@ -70,4 +75,136 @@ input[type="checkbox"]:hover {
 
 input[type="checkbox"]:checked {
   border-color: var(--blue-10) !important;
+}
+
+/* Date Range Picker Styles */
+.mantine-DatePickerInput-input {
+  border-color: var(--gray-10) !important;
+  outline: 0px solid var(--blue-7) !important;
+  outline-offset: 0px;
+  transition: border-color 80ms ease, outline-width 80ms ease !important;
+}
+
+.mantine-DatePickerInput-input:hover {
+  border-color: var(--blue-10) !important;
+}
+
+.mantine-DatePickerInput-input:focus {
+  border-color: var(--blue-10) !important;
+  outline: 2px solid var(--blue-7) !important;
+}
+
+.mantine-DatePickerInput-placeholder {
+  color: var(--gray-12) !important;
+  font-weight: 500 !important;
+}
+
+/* Date Input Styles (same as DatePickerInput) */
+.mantine-DateInput-input {
+  border-color: var(--gray-10) !important;
+  outline: 0px solid var(--blue-7) !important;
+  outline-offset: 0px;
+  transition: border-color 80ms ease, outline-width 80ms ease !important;
+}
+
+.mantine-DateInput-input:hover {
+  border-color: var(--blue-10) !important;
+}
+
+.mantine-DateInput-input:focus {
+  border-color: var(--blue-10) !important;
+  outline: 2px solid var(--blue-7) !important;
+}
+
+.mantine-DateInput-placeholder {
+  color: var(--gray-12) !important;
+  font-weight: 500 !important;
+}
+
+/* Date Picker Calendar Customization */
+/* Selected date range background color */
+.mantine-DatePickerInput-day[data-in-range] {
+  background-color: var(--blue-3) !important;
+}
+
+/* Selected start and end dates */
+.mantine-DatePickerInput-day[data-selected] {
+  background-color: var(--blue-9) !important;
+  color: white !important;
+}
+
+/* Hover state for dates */
+.mantine-DatePickerInput-day:hover {
+  background-color: var(--blue-2) !important;
+}
+
+/* Today's date indicator */
+.mantine-DatePickerInput-day[data-today] {
+  border: 1px solid var(--blue-9) !important;
+}
+
+/* Weekend days color - override Mantine's default red to match regular days */
+.mantine-DatePickerInput-day[data-weekend] {
+  color: inherit !important;
+}
+
+/* Date Input Calendar Customization (same styles as DatePickerInput) */
+/* Selected date */
+.mantine-DateInput-day[data-selected] {
+  background-color: var(--blue-9) !important;
+  color: white !important;
+}
+
+/* Hover state for dates */
+.mantine-DateInput-day:hover {
+  background-color: var(--blue-2) !important;
+}
+
+/* Today's date indicator */
+.mantine-DateInput-day[data-today] {
+  border: 1px solid var(--blue-9) !important;
+}
+
+/* Weekend days color - override Mantine's default red to match regular days */
+.mantine-DateInput-day[data-weekend] {
+  color: inherit !important;
+}
+
+/* MultiSelect Input Styles - Match other inputs */
+.text-input .mantine-MultiSelect-input,
+.mantine-MultiSelect-input {
+  border-color: var(--gray-10) !important;
+  outline: 0px solid var(--blue-7) !important;
+  outline-offset: 0px;
+  transition: border-color 80ms ease, outline-width 80ms ease !important;
+  padding-left: 4px !important;
+}
+
+.text-input .mantine-MultiSelect-input:hover,
+.mantine-MultiSelect-input:hover {
+  border-color: var(--blue-10) !important;
+}
+
+.text-input .mantine-MultiSelect-input:focus,
+.mantine-MultiSelect-input:focus,
+.text-input .mantine-MultiSelect-input:focus-within,
+.mantine-MultiSelect-input:focus-within {
+  border-color: var(--blue-10) !important;
+  outline: 2px solid var(--blue-7) !important;
+}
+
+.mantine-MultiSelect-pill {
+  margin-left: 2px !important;
+}
+
+/* Search Input Expand Animation */
+@keyframes expandSearch {
+  from {
+    width: 0;
+    opacity: 0;
+  }
+  to {
+    width: 300px;
+    opacity: 1;
+  }
 }

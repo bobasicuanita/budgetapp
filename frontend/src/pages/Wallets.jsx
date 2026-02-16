@@ -2,12 +2,13 @@ import AppLayout from '../components/AppLayout';
 import { Title, Text, Stack, Group, Loader, Accordion, Box, Avatar, Divider, ActionIcon, Drawer, Button, Menu, Select, TextInput, NumberInput, Checkbox, Badge, Tooltip } from '@mantine/core';
 import { modals } from '@mantine/modals';
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { authenticatedFetch } from '../utils/api';
 import { WALLET_TYPES } from '../data/walletTypes';
 import { formatCurrency, getCurrencySymbol, GROUPED_CURRENCY_OPTIONS, ALL_CURRENCIES } from '../data/currencies';
-import { IconEdit, IconPlus, IconDotsVertical, IconArrowsExchange, IconReceipt } from '@tabler/icons-react';
+import { IconEdit, IconPlus, IconDotsVertical, IconArrowsExchange, IconReceipt, IconArchive } from '@tabler/icons-react';
 import { useRipple } from '../hooks/useRipple';
+import { useWallets } from '../hooks/useWallets';
 import { CountryFlag } from '../components/CountryFlag';
 import '../styles/navigation.css';
 import '../styles/inputs.css';
@@ -26,18 +27,7 @@ function Wallets() {
   const [newWalletBalance, setNewWalletBalance] = useState(0);
   const [includeInBalance, setIncludeInBalance] = useState(true);
 
-  const { data, isLoading, error } = useQuery({
-    queryKey: ['wallets'],
-    queryFn: async () => {
-      const response = await authenticatedFetch('/api/wallets');
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch wallets');
-      }
-      
-      return response.json();
-    }
-  });
+  const { data, isLoading, error } = useWallets();
 
   const createWalletMutation = useMutation({
     mutationFn: async (walletData) => {
@@ -153,8 +143,8 @@ function Wallets() {
   return (
     <AppLayout>
       <Box w="100%">
-        <Group justify="space-between" align="center" mb="lg">
-          <Title order={1}>Wallets</Title>
+        <Group justify="space-between" align="flex-start">
+          <Title order={3}>Wallets</Title>
           <Button
             color="blue.9"
             radius="sm"
@@ -520,9 +510,10 @@ function Wallets() {
                 <Divider />
                 <Button
                   variant="outline"
-                  color="gray.9"
+                  color="gray.11"
                   size="md"
                   fullWidth
+                  leftSection={<IconArchive size={18} />}
                   onClick={() => {
                     modals.openConfirmModal({
                       title: 'Archive Wallet?',

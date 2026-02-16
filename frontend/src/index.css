@@ -1,6 +1,17 @@
 /* ===== Mantine Core Styles ===== */
 @import '@mantine/core/styles.css';
 @import '@mantine/notifications/styles.css';
+@import '@mantine/dates/styles.css';
 
 /* ===== Custom Colors ===== */
 @import './theme/colors.css';
+
+/* ===== Notification Custom Styles ===== */
+/* Remove stacked shadows from notification */
+.mantine-Notification-root {
+  box-shadow: none !important;
+}
+
+.mantine-Notifications-notification {
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05) !important;
+}

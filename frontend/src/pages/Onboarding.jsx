@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Title, Text, TextInput, Flex, Button, Stack, Box, Stepper, Select, NumberInput, Group, Anchor, Card, Checkbox } from '@mantine/core';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Title, Text, TextInput, Flex, Button, Stack, Box, Stepper, Select, NumberInput, Group, Anchor, Card, Checkbox, Loader } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { FaUser, FaDollarSign, FaWallet } from 'react-icons/fa';
 // Colors are now accessed via CSS variables (var(--color-name))
@@ -19,6 +19,27 @@ function Onboarding() {
   const queryClient = useQueryClient();
   const createRipple = useRipple();
   const isMobile = useMediaQuery('(max-width: 550px)');
+
+  // Check if user has already completed onboarding
+  const { data: onboardingStatus, isLoading: isCheckingStatus } = useQuery({
+    queryKey: ['onboarding-status'],
+    queryFn: async () => {
+      const response = await authenticatedFetch('/api/onboarding/status');
+      if (!response.ok) {
+        throw new Error('Failed to fetch onboarding status');
+      }
+      return response.json();
+    },
+    retry: 1,
+    staleTime: 0, // Always fetch fresh data
+  });
+
+  // Redirect to dashboard if already completed onboarding
+  useEffect(() => {
+    if (onboardingStatus?.completed) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [onboardingStatus, navigate]);
   
   const [activeStep, setActiveStep] = useState(0);
   
@@ -133,6 +154,22 @@ function Onboarding() {
       opacity: 0
     })
   };
+
+  // Show loading while checking onboarding status
+  if (isCheckingStatus) {
+    return (
+      <Flex
+        mih="100vh"
+        style={{ 
+          background: 'radial-gradient(circle, var(--blue-2) 0%, var(--blue-6) 50%)'
+        }}
+        justify="center"
+        align="center"
+      >
+        <Loader color="blue.9" size="lg" />
+      </Flex>
+    );
+  }
 
   return (
     <Flex

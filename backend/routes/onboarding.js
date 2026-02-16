@@ -2,6 +2,7 @@ import express from "express";
 import sql from "../config/database.js";
 import { authenticateToken } from "../middleware/auth.js";
 import { isValidName, validationMessages } from "../utils/validation.js";
+import { generateWalletName, getWalletDefaults } from "./wallets.js";
 
 const router = express.Router();
 

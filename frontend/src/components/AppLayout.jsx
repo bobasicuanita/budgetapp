@@ -91,18 +91,18 @@ function AppLayout({ children }) {
         }
       }}
     >
-      <AppShell.Navbar p="md">
+      <AppShell.Navbar px="md">
         <Stack justify="space-between" h="100%">
           {/* Sidebar Header */}
           <Stack gap="md">
-            <Group gap="sm" mb="sm" wrap="nowrap" ml="4px">
+            <Group gap="sm" my="sm" wrap="nowrap" ml={desktopOpened ? "6px" : "2px"}>
               <ActionIcon
                 onClick={toggleMobile}
                 hiddenFrom="sm"
                 size="lg"
                 variant="subtle"
                 className="sidebar-toggle-icon"
-                style={{ color: 'var(--gray-11)' }}
+                style={{ color: 'var(--gray-12)' }}
               >
                 <IconMenu2 size={20} />
               </ActionIcon>
@@ -114,7 +114,7 @@ function AppLayout({ children }) {
                 variant="subtle"
                 color="gray.11"
                 className="sidebar-toggle-icon"
-                style={{ color: 'var(--gray-11)', flexShrink: 0 }}
+                style={{ color: 'var(--gray-12)', flexShrink: 0 }}
               >
                 {desktopOpened ? (
                   <IconLayoutSidebarLeftCollapse size={20} />
