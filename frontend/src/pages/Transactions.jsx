@@ -1,10 +1,10 @@
 import AppLayout from '../components/AppLayout';
-import { Button, Drawer, Stack, Text, NumberInput, Chip, Group, Select, MultiSelect, Badge, Box, TextInput, Tooltip, Accordion, Loader, Divider, Grid, Title, Popover, Modal, Checkbox } from '@mantine/core';
+import { Button, Drawer, Stack, Text, NumberInput, Chip, Group, Select, MultiSelect, Badge, Box, TextInput, Tooltip, Accordion, Loader, Divider, Grid, Title, Popover, Modal, Checkbox, Skeleton } from '@mantine/core';
 import { DateInput, DatePickerInput } from '@mantine/dates';
 import { useState, useMemo, useEffect, useRef, memo, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useDebouncedValue } from '@mantine/hooks';
-import { IconPlus, IconCalendar, IconAlertTriangle, IconFilter, IconEdit, IconTrash, IconSearch, IconX, IconArrowsRightLeft } from '@tabler/icons-react';
+import { IconPlus, IconCalendar, IconAlertTriangle, IconFilter, IconEdit, IconTrash, IconSearch, IconX, IconArrowsRightLeft, IconDownload } from '@tabler/icons-react';
 import dayjs from 'dayjs';
 import { v4 as uuidv4 } from 'uuid';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -15,6 +15,7 @@ import { useReferenceData } from '../hooks/useReferenceData';
 import { useTransactions } from '../hooks/useTransactions';
 import { formatCurrency } from '../data/currencies';
 import { authenticatedFetch } from '../utils/api';
+import { MAX_AMOUNT } from '../utils/amountValidation';
 import '../styles/inputs.css';
 
 // Memoized transaction item component to prevent unnecessary re-renders
@@ -481,6 +482,20 @@ function Transactions() {
         const lastDayLastMonth = new Date(today.getFullYear(), today.getMonth(), 0);
         return [firstDayLastMonth, lastDayLastMonth];
       }
+      case 'thisYear': {
+        const firstDayThisYear = new Date(today.getFullYear(), 0, 1);
+        const lastDayThisYear = new Date(today.getFullYear(), 11, 31);
+        return [firstDayThisYear, lastDayThisYear];
+      }
+      case 'lastYear': {
+        const firstDayLastYear = new Date(today.getFullYear() - 1, 0, 1);
+        const lastDayLastYear = new Date(today.getFullYear() - 1, 11, 31);
+        return [firstDayLastYear, lastDayLastYear];
+      }
+      case 'allTime': {
+        const startOfTime = new Date(2000, 0, 1); // January 1, 2000
+        return [startOfTime, new Date(today)];
+      }
       case 'thisMonth': {
         const firstDayThisMonth = new Date(today.getFullYear(), today.getMonth(), 1);
         const lastDayThisMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
@@ -863,8 +878,108 @@ function Transactions() {
     return null;
   }, [transactionType, fromWalletId, amount, walletsData]);
 
+  // Check if amount would cause numeric overflow
+  const amountOverflowWarning = useMemo(() => {
+    if (!amount || !walletsData?.wallets) return null;
+
+    const amountNum = parseFloat(amount);
+    if (isNaN(amountNum)) return null;
+
+    // Check if amount itself exceeds maximum for any transaction type
+    if (amountNum > MAX_AMOUNT) {
+      // Get wallet info for proper currency and calculation
+      let selectedWallet = null;
+      if (transactionType === 'income' && walletId) {
+        selectedWallet = walletsData.wallets.find(w => w.id.toString() === walletId);
+      } else if (transactionType === 'expense' && walletId) {
+        selectedWallet = walletsData.wallets.find(w => w.id.toString() === walletId);
+      } else if (transactionType === 'transfer' && toWalletId) {
+        selectedWallet = walletsData.wallets.find(w => w.id.toString() === toWalletId);
+      }
+
+      if (selectedWallet) {
+        const maxAllowed = transactionType === 'income' || transactionType === 'transfer'
+          ? MAX_AMOUNT - selectedWallet.current_balance
+          : MAX_AMOUNT; // For expenses, just use MAX_AMOUNT
+        
+        return {
+          type: 'wallet_overflow',
+          maxAllowed,
+          currency: selectedWallet.currency,
+          currentBalance: selectedWallet.current_balance
+        };
+      }
+
+      // Fallback if no wallet selected
+      return {
+        type: 'wallet_overflow',
+        maxAllowed: MAX_AMOUNT,
+        currency: 'USD',
+        currentBalance: 0
+      };
+    }
+
+    // Check if transaction would cause wallet to exceed maximum
+    if (transactionType === 'income' && walletId) {
+      const selectedWallet = walletsData.wallets.find(w => w.id.toString() === walletId);
+      if (selectedWallet) {
+        const newBalance = selectedWallet.current_balance + amountNum;
+        if (newBalance > MAX_AMOUNT) {
+          const maxAllowed = MAX_AMOUNT - selectedWallet.current_balance;
+          return {
+            type: 'wallet_overflow',
+            maxAllowed,
+            currency: selectedWallet.currency,
+            currentBalance: selectedWallet.current_balance
+          };
+        }
+      }
+    } else if (transactionType === 'transfer' && toWalletId) {
+      const selectedWallet = walletsData.wallets.find(w => w.id.toString() === toWalletId);
+      if (selectedWallet) {
+        const newBalance = selectedWallet.current_balance + amountNum;
+        if (newBalance > MAX_AMOUNT) {
+          const maxAllowed = MAX_AMOUNT - selectedWallet.current_balance;
+          return {
+            type: 'wallet_overflow',
+            maxAllowed,
+            currency: selectedWallet.currency,
+            currentBalance: selectedWallet.current_balance,
+            walletName: selectedWallet.name
+          };
+        }
+      }
+    }
+
+    return null;
+  }, [amount, transactionType, walletId, toWalletId, walletsData]);
+
+  // Calculate dynamic max amount for NumberInput (prevents clamping to wrong value on blur)
+  const maxAllowedAmount = useMemo(() => {
+    if (!walletsData?.wallets) return MAX_AMOUNT;
+
+    if (transactionType === 'income' && walletId) {
+      const selectedWallet = walletsData.wallets.find(w => w.id.toString() === walletId);
+      if (selectedWallet) {
+        return MAX_AMOUNT - selectedWallet.current_balance;
+      }
+    } else if (transactionType === 'transfer' && toWalletId) {
+      const selectedWallet = walletsData.wallets.find(w => w.id.toString() === toWalletId);
+      if (selectedWallet) {
+        return MAX_AMOUNT - selectedWallet.current_balance;
+      }
+    }
+
+    return MAX_AMOUNT;
+  }, [transactionType, walletId, toWalletId, walletsData]);
+
   // Check if transaction should be blocked (only cash wallets cannot be overdrawn)
   const isOverdraftBlocked = useMemo(() => {
+    // Block if amount overflow
+    if (amountOverflowWarning) {
+      return true;
+    }
+    
     // For expense transactions
     if (transactionType === 'expense' && walletBalanceWarning) {
       return walletBalanceWarning.walletType === 'cash';
@@ -876,7 +991,7 @@ function Transactions() {
     }
     
     return false;
-  }, [transactionType, walletBalanceWarning, fromWalletBalanceWarning]);
+  }, [transactionType, walletBalanceWarning, fromWalletBalanceWarning, amountOverflowWarning]);
 
   // Check if selected date is in the future (tomorrow or later)
   const isFutureDate = useMemo(() => {
@@ -1028,6 +1143,12 @@ function Transactions() {
         return 'Last 7 days';
       case 'lastMonth':
         return 'Last Month';
+      case 'thisYear':
+        return 'This Year';
+      case 'lastYear':
+        return 'Last Year';
+      case 'allTime':
+        return 'All time';
       case 'thisMonth':
       default:
         return 'This Month';
@@ -1102,7 +1223,7 @@ function Transactions() {
     }, 200); // Match animation duration
   };
 
-  // Handle clearing all filters (excluding date and search)
+  // Handle clearing all filters (including date and excluding search)
   const handleClearAllFilters = () => {
     // Set transitioning state to prevent empty state flash
     setIsTransitioning(true);
@@ -1116,8 +1237,111 @@ function Transactions() {
     setFilterCounterparty('');
     setFilterIncludeFuture(false);
     
+    // Clear date filter
+    setDateFilterType('thisMonth');
+    setDateRange(null);
+    setTempDateRange([null, null]);
+    
     // Fallback: Clear transitioning state after a longer timeout in case data never arrives
     setTimeout(() => setIsTransitioning(false), 2000);
+  };
+
+  // Handle CSV download with all current filters
+  const handleDownloadCSV = async () => {
+    try {
+      // Build query parameters from all filter states
+      const params = new URLSearchParams();
+      
+      // Date filters
+      if (dateRange && dateRange[0] && dateRange[1]) {
+        params.append('start_date', dayjs(dateRange[0]).format('YYYY-MM-DD'));
+        params.append('end_date', dayjs(dateRange[1]).format('YYYY-MM-DD'));
+      } else if (dateFilterType === 'thisMonth') {
+        const now = dayjs();
+        params.append('start_date', now.startOf('month').format('YYYY-MM-DD'));
+        params.append('end_date', now.endOf('month').format('YYYY-MM-DD'));
+      } else if (dateFilterType === 'lastMonth') {
+        const lastMonth = dayjs().subtract(1, 'month');
+        params.append('start_date', lastMonth.startOf('month').format('YYYY-MM-DD'));
+        params.append('end_date', lastMonth.endOf('month').format('YYYY-MM-DD'));
+      } else if (dateFilterType === 'thisYear') {
+        const now = dayjs();
+        params.append('start_date', now.startOf('year').format('YYYY-MM-DD'));
+        params.append('end_date', now.endOf('year').format('YYYY-MM-DD'));
+      } else if (dateFilterType === 'lastYear') {
+        const lastYear = dayjs().subtract(1, 'year');
+        params.append('start_date', lastYear.startOf('year').format('YYYY-MM-DD'));
+        params.append('end_date', lastYear.endOf('year').format('YYYY-MM-DD'));
+      } else if (dateFilterType === 'allTime') {
+        params.append('start_date', '2000-01-01');
+        params.append('end_date', dayjs().format('YYYY-MM-DD'));
+      }
+      
+      // Transaction types
+      if (filterTransactionTypes.length > 0) {
+        params.append('type', filterTransactionTypes.join(','));
+      }
+      
+      // Wallets
+      if (filterWallets.length > 0) {
+        params.append('wallet_ids', filterWallets.join(','));
+      }
+      
+      // Categories
+      if (filterCategories.length > 0) {
+        params.append('category_ids', filterCategories.join(','));
+      }
+      
+      // Tags
+      if (filterTags.length > 0) {
+        params.append('tag_ids', filterTags.join(','));
+      }
+      
+      // Search
+      if (appliedSearchQuery) {
+        params.append('search', appliedSearchQuery);
+      }
+      
+      // Amount range
+      if (filterMinAmount) {
+        params.append('min_amount', filterMinAmount);
+      }
+      if (filterMaxAmount) {
+        params.append('max_amount', filterMaxAmount);
+      }
+      
+      // Include future
+      if (filterIncludeFuture) {
+        params.append('include_future', 'true');
+      }
+      
+      // Fetch CSV from backend
+      const response = await authenticatedFetch(`/api/transactions/csv?${params.toString()}`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to download CSV');
+      }
+      
+      // Get the CSV content as blob
+      const blob = await response.blob();
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `transactions_${dayjs().format('YYYY-MM-DD')}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      
+      // Cleanup
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      showSuccessNotification('CSV downloaded successfully');
+    } catch (error) {
+      console.error('Error downloading CSV:', error);
+      showErrorNotification('Failed to download CSV');
+    }
   };
 
   const handleOpenEditDrawer = useCallback((transaction) => {
@@ -1333,6 +1557,35 @@ function Transactions() {
         setDatePopoverOpened(false);
         return;
       }
+      
+      // Check if matches "This Year"
+      const firstDayThisYear = today.startOf('year');
+      const lastDayThisYear = today.endOf('year').startOf('day');
+      if (start.isSame(firstDayThisYear, 'day') && end.isSame(lastDayThisYear, 'day')) {
+        setDateFilterType('thisYear');
+        setDateRange(normalizedRange);
+        setDatePopoverOpened(false);
+        return;
+      }
+      
+      // Check if matches "Last Year"
+      const firstDayLastYear = today.subtract(1, 'year').startOf('year');
+      const lastDayLastYear = today.subtract(1, 'year').endOf('year').startOf('day');
+      if (start.isSame(firstDayLastYear, 'day') && end.isSame(lastDayLastYear, 'day')) {
+        setDateFilterType('lastYear');
+        setDateRange(normalizedRange);
+        setDatePopoverOpened(false);
+        return;
+      }
+      
+      // Check if matches "All time"
+      const startOfTime = dayjs('2000-01-01');
+      if (start.isSame(startOfTime, 'day') && end.isSame(today, 'day')) {
+        setDateFilterType('allTime');
+        setDateRange(normalizedRange);
+        setDatePopoverOpened(false);
+        return;
+      }
     }
   };
 
@@ -1512,6 +1765,29 @@ function Transactions() {
     return 'Edit Transfer';
   }, [editMode, transactionType]);
 
+  // Get totals from API response (calculated for ALL matching transactions, not just paginated ones)
+  const totals = useMemo(() => {
+    // Get totals from the first page (all pages have the same totals)
+    const apiTotals = transactionsData?.pages?.[0]?.totals;
+    
+    if (apiTotals) {
+      return {
+        totalIncome: apiTotals.income || 0,
+        totalExpense: apiTotals.expenses || 0,
+        netIncome: apiTotals.net || 0,
+        currency: apiTotals.currency || '€'
+      };
+    }
+    
+    // Fallback if no API totals available
+    return {
+      totalIncome: 0,
+      totalExpense: 0,
+      netIncome: 0,
+      currency: '€'
+    };
+  }, [transactionsData]);
+
   return (
     <AppLayout>
       <Stack style={{ position: 'relative', height: '100%' }}>
@@ -1531,6 +1807,66 @@ function Transactions() {
           >
             Add Transaction
           </Button>
+        </Group>
+
+        {/* Summary Boxes */}
+        <Group gap="md" grow>
+          {/* Total Income */}
+          <Box style={{ 
+            background: 'white', 
+            borderRadius: '8px', 
+            padding: '16px', 
+            boxShadow: 'var(--mantine-shadow-sm)' 
+          }}>
+            <Text size="xs" fw={500} style={{ color: 'var(--gray-11)', marginBottom: '8px' }}>
+              TOTAL INCOME
+            </Text>
+            {(transactionsLoading || transactionsFetching || isTransitioning) && groupedTransactions.length === 0 ? (
+              <Skeleton height={32} width="30%" />
+            ) : (
+              <Text size="xl" fw={600} style={{ color: 'var(--green-9)' }}>
+                +{formatCurrency(totals.totalIncome, totals.currency)}
+              </Text>
+            )}
+          </Box>
+
+          {/* Total Expenses */}
+          <Box style={{ 
+            background: 'white', 
+            borderRadius: '8px', 
+            padding: '16px', 
+            boxShadow: 'var(--mantine-shadow-sm)' 
+          }}>
+            <Text size="xs" fw={500} style={{ color: 'var(--gray-11)', marginBottom: '8px' }}>
+              TOTAL EXPENSES
+            </Text>
+            {(transactionsLoading || transactionsFetching || isTransitioning) && groupedTransactions.length === 0 ? (
+              <Skeleton height={32} width="30%" />
+            ) : (
+              <Text size="xl" fw={600} style={{ color: 'var(--red-9)' }}>
+                -{formatCurrency(totals.totalExpense, totals.currency)}
+              </Text>
+            )}
+          </Box>
+
+          {/* Net Income */}
+          <Box style={{ 
+            background: 'white', 
+            borderRadius: '8px', 
+            padding: '16px', 
+            boxShadow: 'var(--mantine-shadow-sm)' 
+          }}>
+            <Text size="xs" fw={500} style={{ color: 'var(--gray-11)', marginBottom: '8px' }}>
+              NET INCOME
+            </Text>
+            {(transactionsLoading || transactionsFetching || isTransitioning) && groupedTransactions.length === 0 ? (
+              <Skeleton height={32} width="30%" />
+            ) : (
+              <Text size="xl" fw={600} style={{ color: totals.netIncome >= 0 ? 'var(--green-9)' : 'var(--red-9)' }}>
+                {totals.netIncome >= 0 ? '+' : ''}{formatCurrency(totals.netIncome, totals.currency)}
+              </Text>
+            )}
+          </Box>
         </Group>
 
         {/* Transactions List */}
@@ -1575,8 +1911,22 @@ function Transactions() {
           }
           
           return (
-          <Box style={{ backgroundColor: 'white', borderRadius: '8px', width: '66%', boxShadow: 'var(--mantine-shadow-sm)', overflow: 'hidden' }}>
-            <Box p="md" style={{ borderBottom: '1px solid var(--gray-3)', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+          <Box style={{ backgroundColor: 'white', borderRadius: '8px', width: '100%', boxShadow: 'var(--mantine-shadow-sm)', overflow: 'hidden' }}>
+            <Box p="md" style={{ borderBottom: '1px solid var(--gray-3)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+              {/* Download CSV Button */}
+              <Button 
+                variant="subtle" 
+                color="blue.9"
+                c="blue.9"
+                leftSection={<IconDownload size={18} />}
+                size="sm"
+                onClick={handleDownloadCSV}
+              >
+                Download CSV
+              </Button>
+
+              {/* Right side buttons */}
+              <Box style={{ display: 'flex', gap: '8px' }}>
               {/* Expandable Search */}
               {searchExpanded ? (
                 <Box
@@ -1651,8 +2001,9 @@ function Transactions() {
                 </Box>
               ) : (
                 <Button 
-                  variant="outline" 
-                  color="gray.11" 
+                  variant="subtle" 
+                  color="blue.9" 
+                  c="blue.9"
                   leftSection={<IconSearch size={18} />}
                   size="sm"
                   onClick={() => {
@@ -1678,8 +2029,9 @@ function Transactions() {
                 <Popover.Target>
                   <Tooltip label={dateFilterTooltip} position="top">
                     <Button 
-                      variant="outline" 
-                      color="gray.11" 
+                      variant="subtle" 
+                      color="blue.9" 
+                      c="blue.9"
                       leftSection={<IconCalendar size={18} />}
                       size="sm"
                       onClick={() => {
@@ -1717,6 +2069,9 @@ function Transactions() {
                         { value: [dayjs().subtract(1, 'day').toDate(), dayjs().subtract(1, 'day').toDate()], label: 'Yesterday' },
                         { value: [dayjs().subtract(6, 'days').toDate(), dayjs().toDate()], label: 'Last 7 days' },
                         { value: [dayjs().subtract(1, 'month').startOf('month').toDate(), dayjs().subtract(1, 'month').endOf('month').toDate()], label: 'Last Month' },
+                        { value: [dayjs().startOf('year').toDate(), dayjs().endOf('year').toDate()], label: 'This Year' },
+                        { value: [dayjs().subtract(1, 'year').startOf('year').toDate(), dayjs().subtract(1, 'year').endOf('year').toDate()], label: 'Last Year' },
+                        { value: [dayjs('2000-01-01').toDate(), dayjs().toDate()], label: 'All time' },
                       ]}
                     />
 
@@ -1745,14 +2100,16 @@ function Transactions() {
               </Popover>
 
               <Button 
-                variant="outline" 
-                color="gray.11" 
+                variant="subtle" 
+                color="blue.9"
+                c="blue.9"
                 leftSection={<IconFilter size={18} />}
                 size="sm"
                 onClick={() => setFiltersDrawerOpened(true)}
               >
                 Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
               </Button>
+              </Box>
             </Box>
             
             <TransactionList
@@ -1820,16 +2177,81 @@ function Transactions() {
               </div>
             )}
             
+            {/* Wallet dropdown - Only show for Income and Expense - MOVED BEFORE AMOUNT */}
+            {(transactionType === 'income' || transactionType === 'expense') && (
+              <>
+                <Select
+                  label="Wallet"
+                  placeholder="Select wallet"
+                  value={walletId}
+                  onChange={setWalletId}
+                  data={walletsData?.wallets?.map(wallet => ({
+                    value: wallet.id.toString(),
+                    label: wallet.name,
+                    wallet: wallet
+                  })) || []}
+                  size="md"
+                  className="text-input"
+                  searchable
+                  clearable
+                  disabled={walletsLoading}
+                  styles={{
+                    label: { fontSize: '12px', fontWeight: 500 }
+                  }}
+                  renderOption={({ option }) => {
+                    const wallet = option.wallet;
+                    if (!wallet) return option.label;
+                    
+                    return (
+                      <Group gap="xs" wrap="nowrap" justify="space-between" style={{ width: '100%' }}>
+                        <Group gap="xs" wrap="nowrap">
+                          <Text size="lg" style={{ flexShrink: 0 }}>
+                            {wallet.icon}
+                          </Text>
+                          <Text size="sm" style={{ flexShrink: 0 }}>
+                            {wallet.name}
+                          </Text>
+                          <Badge
+                            size="xs"
+                            color={wallet.include_in_balance ? "green" : "gray"}
+                            variant="light"
+                            style={{ flexShrink: 0 }}
+                            styles={{
+                              root: {
+                                color: wallet.include_in_balance ? 'var(--green-9)' : 'var(--gray-9)'
+                              }
+                            }}
+                          >
+                            {wallet.include_in_balance ? "Included" : "Excluded"}
+                          </Badge>
+                        </Group>
+                        <Text size="sm" fw={600} c="gray.11" style={{ flexShrink: 0 }}>
+                          {formatCurrency(wallet.current_balance, wallet.currency)}
+                        </Text>
+                      </Group>
+                    );
+                  }}
+                />
+              </>
+            )}
+            
             <NumberInput
               ref={amountInputRef}
               label="Amount"
               placeholder="0.00"
               value={amount}
               onChange={setAmount}
+              onBlur={() => {
+                // If there's an overflow warning, clamp to maxAllowed
+                if (amountOverflowWarning && amountOverflowWarning.maxAllowed) {
+                  setAmount(amountOverflowWarning.maxAllowed);
+                }
+              }}
               decimalScale={2}
               fixedDecimalScale
               thousandSeparator=","
               min={0}
+              max={maxAllowedAmount}
               size="md"
               className="text-input"
               autoFocus
@@ -1838,6 +2260,38 @@ function Transactions() {
                 label: { fontSize: '12px', fontWeight: 500 }
               }}
             />
+
+            {/* Amount overflow warning - Only show when exceeded */}
+            {amountOverflowWarning && (
+              <Group gap="xs" wrap="nowrap" style={{ marginTop: '-8px', marginBottom: '8px' }}>
+                <IconAlertTriangle size={16} color="var(--red-9)" style={{ flexShrink: 0 }} />
+                <Text size="xs" c="red.9">
+                  Maximum allowed amount for this wallet: {formatCurrency(amountOverflowWarning.maxAllowed, amountOverflowWarning.currency)}
+                </Text>
+              </Group>
+            )}
+
+            {/* Wallet balance warning for expenses - Only show if no overflow warning */}
+            {!amountOverflowWarning && walletBalanceWarning && (
+              <Group gap="xs" wrap="nowrap" style={{ marginTop: '-8px', marginBottom: '8px' }}>
+                <IconAlertTriangle size={16} color={walletBalanceWarning.walletType === 'cash' ? "var(--red-9)" : "var(--orange-8)"} style={{ flexShrink: 0 }} />
+                <Text size="xs" c={walletBalanceWarning.walletType === 'cash' ? "red.9" : "orange.7"}>
+                  Amount exceeds wallet balance by {formatCurrency(walletBalanceWarning.difference, walletBalanceWarning.currency)}
+                  {walletBalanceWarning.walletType === 'cash' && ' (Cash wallets cannot be overdrawn)'}
+                </Text>
+              </Group>
+            )}
+
+            {/* From wallet balance warning for transfers - Only show if no overflow warning */}
+            {!amountOverflowWarning && fromWalletBalanceWarning && (
+              <Group gap="xs" wrap="nowrap" style={{ marginTop: '-8px', marginBottom: '8px' }}>
+                <IconAlertTriangle size={16} color={fromWalletBalanceWarning.walletType === 'cash' ? "var(--red-9)" : "var(--orange-8)"} style={{ flexShrink: 0 }} />
+                <Text size="xs" c={fromWalletBalanceWarning.walletType === 'cash' ? "red.9" : "orange.7"}>
+                  Amount exceeds wallet balance by {formatCurrency(fromWalletBalanceWarning.difference, fromWalletBalanceWarning.currency)}
+                  {fromWalletBalanceWarning.walletType === 'cash' && ' (Cash wallets cannot be overdrawn)'}
+                </Text>
+              </Group>
+            )}
 
             {/* From Wallet and To Wallet - Only show for Transfer */}
             {transactionType === 'transfer' && (
@@ -1895,16 +2349,6 @@ function Transactions() {
                   }}
                 />
 
-                {fromWalletBalanceWarning && (
-                  <Group gap="xs" wrap="nowrap" style={{ marginTop: '-8px' }}>
-                    <IconAlertTriangle size={16} color={fromWalletBalanceWarning.walletType === 'cash' ? "var(--red-9)" : "var(--orange-8)"} style={{ flexShrink: 0 }} />
-                    <Text size="xs" c={fromWalletBalanceWarning.walletType === 'cash' ? "red.9" : "orange.7"}>
-                      Amount exceeds wallet balance by {formatCurrency(fromWalletBalanceWarning.difference, fromWalletBalanceWarning.currency)}
-                      {fromWalletBalanceWarning.walletType === 'cash' && ' (Cash wallets cannot be overdrawn)'}
-                    </Text>
-                  </Group>
-                )}
-
                 <Select
                   label="To Wallet"
                   placeholder="Select wallet"
@@ -1953,81 +2397,6 @@ function Transactions() {
                     );
                   }}
                 />
-              </>
-            )}
-
-            {/* Wallet dropdown - Only show for Income and Expense */}
-            {(transactionType === 'income' || transactionType === 'expense') && (
-              <>
-                <Select
-                  label="Wallet"
-                  placeholder="Select wallet"
-                  value={walletId}
-                  onChange={setWalletId}
-                  data={walletsData?.wallets?.map(wallet => ({
-                    value: wallet.id.toString(),
-                    label: wallet.name,
-                    wallet: wallet // Pass full wallet object for custom rendering
-                  })) || []}
-                  size="md"
-                  className="text-input"
-                  searchable
-                  clearable
-                  disabled={walletsLoading}
-                  styles={{
-                    label: { fontSize: '12px', fontWeight: 500 }
-                  }}
-                  renderOption={({ option }) => {
-                    const wallet = option.wallet;
-                    if (!wallet) return option.label;
-                    
-                    return (
-                      <Group gap="xs" wrap="nowrap" justify="space-between" style={{ width: '100%' }}>
-                        <Group gap="xs" wrap="nowrap">
-                          {/* Wallet icon */}
-                          <Text size="lg" style={{ flexShrink: 0 }}>
-                            {wallet.icon}
-                          </Text>
-                          
-                          {/* Wallet name */}
-                          <Text size="sm" style={{ flexShrink: 0 }}>
-                            {wallet.name}
-                          </Text>
-                          
-                          {/* Badge for included/excluded */}
-                          <Badge
-                            size="xs"
-                            color={wallet.include_in_balance ? "green" : "gray"}
-                            variant="light"
-                            style={{ flexShrink: 0 }}
-                            styles={{
-                              root: {
-                                color: wallet.include_in_balance ? 'var(--green-9)' : 'var(--gray-9)'
-                              }
-                            }}
-                          >
-                            {wallet.include_in_balance ? "Included" : "Excluded"}
-                          </Badge>
-                        </Group>
-                        
-                        {/* Current balance - far right */}
-                        <Text size="sm" fw={600} c="gray.11" style={{ flexShrink: 0 }}>
-                          {formatCurrency(wallet.current_balance, wallet.currency)}
-                        </Text>
-                      </Group>
-                    );
-                  }}
-                />
-
-                {walletBalanceWarning && (
-                  <Group gap="xs" wrap="nowrap" style={{ marginTop: '-8px' }}>
-                    <IconAlertTriangle size={16} color={walletBalanceWarning.walletType === 'cash' ? "var(--red-9)" : "var(--orange-8)"} style={{ flexShrink: 0 }} />
-                    <Text size="xs" c={walletBalanceWarning.walletType === 'cash' ? "red.9" : "orange.7"}>
-                      Amount exceeds wallet balance by {formatCurrency(walletBalanceWarning.difference, walletBalanceWarning.currency)}
-                      {walletBalanceWarning.walletType === 'cash' && ' (Cash wallets cannot be overdrawn)'}
-                    </Text>
-                  </Group>
-                )}
               </>
             )}
 

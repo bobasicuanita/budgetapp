@@ -6,10 +6,11 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { authenticatedFetch } from '../utils/api';
 import { WALLET_TYPES } from '../data/walletTypes';
 import { formatCurrency, getCurrencySymbol, GROUPED_CURRENCY_OPTIONS, ALL_CURRENCIES } from '../data/currencies';
-import { IconEdit, IconPlus, IconDotsVertical, IconArrowsExchange, IconReceipt, IconArchive } from '@tabler/icons-react';
+import { IconEdit, IconPlus, IconDotsVertical, IconArrowsExchange, IconReceipt, IconArchive, IconAlertTriangle } from '@tabler/icons-react';
 import { useRipple } from '../hooks/useRipple';
 import { useWallets } from '../hooks/useWallets';
 import { CountryFlag } from '../components/CountryFlag';
+import { MAX_AMOUNT, formatMaxAmount } from '../utils/amountValidation';
 import '../styles/navigation.css';
 import '../styles/inputs.css';
 
@@ -443,6 +444,8 @@ function Wallets() {
               onChange={setNewWalletBalance}
               decimalScale={2}
               thousandSeparator=","
+              min={0}
+              max={MAX_AMOUNT}
               size="md"
               className="text-input"
               prefix={newWalletCurrency ? getCurrencySymbol(newWalletCurrency) + ' ' : ''}
@@ -450,6 +453,16 @@ function Wallets() {
                 label: { fontSize: '12px', fontWeight: 500 }
               }}
             />
+            
+            {/* Balance overflow warning */}
+            {newWalletBalance && parseFloat(newWalletBalance) > MAX_AMOUNT && (
+              <Group gap="xs" wrap="nowrap" style={{ marginTop: '-8px' }}>
+                <IconAlertTriangle size={16} color="var(--red-9)" style={{ flexShrink: 0 }} />
+                <Text size="xs" c="red.9">
+                  Balance exceeds maximum allowed value of {formatMaxAmount(MAX_AMOUNT)}
+                </Text>
+              </Group>
+            )}
             
             <Box>
               <Checkbox
@@ -474,7 +487,8 @@ function Wallets() {
                 !newWalletCurrency || 
                 (selectedWallet && !hasWalletChanged()) || 
                 createWalletMutation.isPending || 
-                updateWalletMutation.isPending
+                updateWalletMutation.isPending ||
+                (newWalletBalance && parseFloat(newWalletBalance) > MAX_AMOUNT)
               }
               loading={createWalletMutation.isPending || updateWalletMutation.isPending}
               onClick={() => {

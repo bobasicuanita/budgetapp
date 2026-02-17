@@ -128,6 +128,14 @@ router.post("/", authenticateToken, async (req, res) => {
 
   } catch (error) {
     console.error("Error creating wallet:", error);
+    
+    // Check if error is numeric overflow
+    if (error.message && error.message.includes('numeric field overflow')) {
+      return res.status(400).json({ 
+        error: "Starting balance exceeds the maximum allowed wallet balance of 9,999,999,999,999" 
+      });
+    }
+    
     res.status(500).json({ error: "Failed to create wallet" });
   }
 });
@@ -200,6 +208,14 @@ router.put("/:id", authenticateToken, async (req, res) => {
 
   } catch (error) {
     console.error("Error updating wallet:", error);
+    
+    // Check if error is numeric overflow
+    if (error.message && error.message.includes('numeric field overflow')) {
+      return res.status(400).json({ 
+        error: "Balance exceeds the maximum allowed wallet balance of 9,999,999,999,999" 
+      });
+    }
+    
     res.status(500).json({ error: "Failed to update wallet" });
   }
 });

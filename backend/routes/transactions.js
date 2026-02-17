@@ -186,6 +186,35 @@ router.get("/", authenticateToken, async (req, res) => {
     const totalCount = countResult?.total || 0;
     const totalPages = Math.ceil(totalCount / perPage);
 
+    // Calculate totals for ALL matching transactions (not just paginated results)
+    const [totalsResult] = await sql.unsafe(`
+      SELECT 
+        COALESCE(SUM(CASE WHEN t.type = 'income' THEN t.amount ELSE 0 END), 0) as total_income,
+        COALESCE(SUM(CASE WHEN t.type = 'expense' THEN ABS(t.amount) ELSE 0 END), 0) as total_expenses,
+        COALESCE(
+          SUM(CASE WHEN t.type = 'income' THEN t.amount ELSE 0 END) - 
+          SUM(CASE WHEN t.type = 'expense' THEN ABS(t.amount) ELSE 0 END), 
+          0
+        ) as net_income,
+        t.currency
+      FROM transactions t
+      WHERE ${fullWhereClause}
+      GROUP BY t.currency
+      LIMIT 1
+    `);
+
+    const totals = totalsResult ? {
+      income: parseFloat(totalsResult.total_income) || 0,
+      expenses: parseFloat(totalsResult.total_expenses) || 0,
+      net: parseFloat(totalsResult.net_income) || 0,
+      currency: totalsResult.currency || 'USD'
+    } : {
+      income: 0,
+      expenses: 0,
+      net: 0,
+      currency: 'USD'
+    };
+
     // Get tags for each transaction
     const transactionIds = transactions.map(t => t.id);
     let transactionTags = [];
@@ -221,6 +250,12 @@ router.get("/", authenticateToken, async (req, res) => {
         has_next: pageNum < totalPages,
         has_prev: pageNum > 1
       },
+      totals: {
+        income: totals.income,
+        expenses: totals.expenses,
+        net: totals.net,
+        currency: totals.currency
+      },
       filters: {
         start_date: defaultStartDate,
         end_date: defaultEndDate,
@@ -239,6 +274,223 @@ router.get("/", authenticateToken, async (req, res) => {
     console.error("Error fetching transactions:", error);
     res.status(500).json({ 
       error: "Failed to fetch transactions" 
+    });
+  }
+});
+
+/**
+ * GET /api/transactions/csv
+ * Export transactions as CSV with the same filtering as the main endpoint
+ * 
+ * Query params: Same as GET /api/transactions (all filters supported)
+ * 
+ * CSV Columns:
+ * - Date, Type, Category, Amount, Currency, Wallet, To Wallet (for transfers),
+ *   Merchant/Source, Description, Tags, Status, Created At
+ */
+router.get("/csv", authenticateToken, async (req, res) => {
+  const userId = req.user.userId;
+  
+  const {
+    start_date,
+    end_date,
+    type,
+    wallet_id,
+    wallet_ids,
+    category_id,
+    category_ids,
+    tag_ids,
+    search,
+    min_amount,
+    max_amount,
+    include_future = 'false'
+  } = req.query;
+
+  try {
+    // Default date range to current month if not provided
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    
+    const firstDay = new Date(year, month, 1);
+    const defaultStartDate = start_date || firstDay.toISOString().split('T')[0];
+    
+    const lastDay = new Date(year, month + 1, 0);
+    const defaultEndDate = end_date || lastDay.toISOString().split('T')[0];
+
+    // Parse include_future
+    const includeFuture = include_future === 'true';
+    
+    // Build WHERE conditions (same logic as main endpoint)
+    let queryParts = {
+      baseWhere: `t.user_id = ${userId} 
+        AND t.date >= '${defaultStartDate}'::date 
+        AND t.date <= '${defaultEndDate}'::date`,
+      additional: []
+    };
+
+    if (!includeFuture) {
+      queryParts.additional.push(`t.date <= CURRENT_DATE`);
+    }
+
+    // Handle transaction types
+    if (type) {
+      const types = type.split(',').map(t => t.trim()).filter(t => ['income', 'expense', 'transfer'].includes(t));
+      if (types.length === 1) {
+        queryParts.additional.push(`t.type = '${types[0]}'`);
+      } else if (types.length > 1) {
+        const typeList = types.map(t => `'${t}'`).join(',');
+        queryParts.additional.push(`t.type IN (${typeList})`);
+      }
+    }
+
+    // Handle wallet filter
+    const walletFilter = wallet_ids || wallet_id;
+    if (walletFilter) {
+      const walletIdNums = walletFilter.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+      if (walletIdNums.length === 1) {
+        queryParts.additional.push(`(t.wallet_id = ${walletIdNums[0]} OR t.to_wallet_id = ${walletIdNums[0]})`);
+      } else if (walletIdNums.length > 1) {
+        const walletList = walletIdNums.join(',');
+        queryParts.additional.push(`(t.wallet_id IN (${walletList}) OR t.to_wallet_id IN (${walletList}))`);
+      }
+    }
+
+    // Handle category filter
+    const categoryFilter = category_ids || category_id;
+    if (categoryFilter) {
+      const categoryArray = categoryFilter.split(',').map(id => `'${id.trim()}'`).join(',');
+      queryParts.additional.push(`t.category_id IN (${categoryArray})`);
+    }
+
+    // Handle search
+    if (search && search.trim()) {
+      const searchTerm = search.trim().replace(/'/g, "''");
+      queryParts.additional.push(`(
+        LOWER(t.description) LIKE LOWER('%${searchTerm}%') OR 
+        LOWER(t.merchant) LIKE LOWER('%${searchTerm}%')
+      )`);
+    }
+
+    // Handle amount range
+    if (min_amount) {
+      const minAmt = parseFloat(min_amount);
+      queryParts.additional.push(`ABS(t.amount) >= ${minAmt}`);
+    }
+
+    if (max_amount) {
+      const maxAmt = parseFloat(max_amount);
+      queryParts.additional.push(`ABS(t.amount) <= ${maxAmt}`);
+    }
+
+    // Handle tags
+    if (tag_ids && tag_ids.trim()) {
+      const tagIdArray = tag_ids.split(',').map(id => `'${id.trim()}'`).join(',');
+      const tagCount = tag_ids.split(',').length;
+      queryParts.additional.push(`(
+        SELECT COUNT(DISTINCT tt.tag_id)
+        FROM transaction_tags tt
+        WHERE tt.transaction_id = t.id
+        AND tt.tag_id IN (${tagIdArray})
+      ) = ${tagCount}`);
+    }
+
+    // For transfers, only show one transaction per pair
+    queryParts.additional.push(`(t.type != 'transfer' OR t.amount < 0)`);
+    
+    const fullWhereClause = queryParts.additional.length > 0
+      ? `${queryParts.baseWhere} AND ${queryParts.additional.join(' AND ')}`
+      : queryParts.baseWhere;
+
+    // Get all transactions (no pagination for CSV export)
+    const transactions = await sql.unsafe(`
+      SELECT 
+        t.*,
+        w.name as wallet_name,
+        c.name as category_name,
+        tw.name as to_wallet_name
+      FROM transactions t
+      LEFT JOIN wallets w ON t.wallet_id = w.id
+      LEFT JOIN wallets tw ON t.to_wallet_id = tw.id
+      LEFT JOIN categories c ON t.category_id = c.id
+      WHERE ${fullWhereClause}
+      ORDER BY t.date DESC, t.created_at DESC
+    `);
+
+    // Get tags for each transaction
+    const transactionIds = transactions.map(t => t.id);
+    let transactionTags = [];
+    
+    if (transactionIds.length > 0) {
+      transactionTags = await sql`
+        SELECT tt.transaction_id, t.name as tag_name
+        FROM transaction_tags tt
+        JOIN tags t ON tt.tag_id = t.id
+        WHERE tt.transaction_id IN ${sql(transactionIds)}
+      `;
+    }
+
+    // Build CSV content with proper formatting for both Excel and Google Sheets
+    // Use comma delimiter (RFC 4180 standard) for universal compatibility
+    // Use \r\n line endings (Windows standard)
+    const csvHeader = 'Date,Type,Category,Amount,Currency,Wallet,To Wallet,Merchant/Source,Description,Tags,Status,Created At\r\n';
+    
+    const csvRows = transactions.map(t => {
+      // Get tags for this transaction
+      const tags = transactionTags
+        .filter(tt => tt.transaction_id === t.id)
+        .map(tt => tt.tag_name)
+        .join('; ');
+      
+      // Format merchant/source field
+      let merchantSource = '';
+      if (t.type === 'transfer') {
+        merchantSource = '';
+      } else if (t.type === 'income') {
+        merchantSource = t.merchant || '';
+      } else {
+        merchantSource = t.merchant || '';
+      }
+      
+      // Escape CSV special characters (quotes, commas, newlines)
+      // Always quote fields to ensure proper parsing in all applications
+      const escapeCSV = (value) => {
+        if (value === null || value === undefined) return '""';
+        const str = String(value);
+        // Quote and escape all fields for maximum compatibility
+        return `"${str.replace(/"/g, '""')}"`;
+      };
+      
+      return [
+        escapeCSV(t.date.toISOString().split('T')[0]), // Date
+        escapeCSV(t.type), // Type
+        escapeCSV(t.category_name || ''), // Category
+        escapeCSV(Math.abs(t.amount)), // Amount (absolute value)
+        escapeCSV(t.currency), // Currency
+        escapeCSV(t.wallet_name || ''), // Wallet
+        escapeCSV(t.to_wallet_name || ''), // To Wallet
+        escapeCSV(merchantSource), // Merchant/Source
+        escapeCSV(t.description || ''), // Description
+        escapeCSV(tags), // Tags
+        escapeCSV(t.status || 'actual'), // Status
+        escapeCSV(t.created_at.toISOString()) // Created At
+      ].join(',');
+    }).join('\r\n');
+
+    // Add UTF-8 BOM for Excel compatibility
+    const BOM = '\uFEFF';
+    const csvContent = BOM + csvHeader + csvRows;
+
+    // Set headers for file download with proper charset
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="transactions_${defaultStartDate}_to_${defaultEndDate}.csv"`);
+    
+    res.send(csvContent);
+
+  } catch (error) {
+    console.error("Error exporting transactions to CSV:", error);
+    res.status(500).json({ 
+      error: "Failed to export transactions" 
     });
   }
 });
@@ -423,11 +675,11 @@ router.post("/",
         const [fromTransaction] = await sql`
           INSERT INTO transactions (
             user_id, wallet_id, to_wallet_id, type, amount, 
-            currency, description, date, is_system
+            currency, description, date, is_system, status
           )
           VALUES (
             ${userId}, ${fromWalletId}, ${toWalletId}, 'transfer', ${-amountValue},
-            ${fromWallet.currency}, ${description || null}, ${date}, false
+            ${fromWallet.currency}, ${description || null}, ${date}, false, 'actual'
           )
           RETURNING *
         `;
@@ -436,11 +688,11 @@ router.post("/",
         const [toTransaction] = await sql`
           INSERT INTO transactions (
             user_id, wallet_id, to_wallet_id, type, amount, 
-            currency, description, date, is_system
+            currency, description, date, is_system, status
           )
           VALUES (
             ${userId}, ${toWalletId}, ${fromWalletId}, 'transfer', ${amountValue},
-            ${toWallet.currency}, ${description || null}, ${date}, false
+            ${toWallet.currency}, ${description || null}, ${date}, false, 'actual'
           )
           RETURNING *
         `;
@@ -510,11 +762,11 @@ router.post("/",
         const [transaction] = await sql`
           INSERT INTO transactions (
             user_id, wallet_id, type, amount, currency, 
-            merchant, counterparty, description, category_id, date, is_system
+            merchant, counterparty, description, category_id, date, is_system, status
           )
           VALUES (
             ${userId}, ${walletId}, ${transactionType}, ${actualAmount}, 
-            ${wallet.currency}, ${merchant || null}, ${counterparty || null}, ${description || null}, ${category}, ${date}, false
+            ${wallet.currency}, ${merchant || null}, ${counterparty || null}, ${description || null}, ${category}, ${date}, false, 'actual'
           )
           RETURNING *
         `;
@@ -551,6 +803,14 @@ router.post("/",
 
   } catch (error) {
     console.error("Error creating transaction:", error);
+    
+    // Check if error is numeric overflow
+    if (error.message && error.message.includes('numeric field overflow')) {
+      return res.status(400).json({ 
+        error: "This transaction would exceed the maximum allowed wallet balance of 9,999,999,999,999" 
+      });
+    }
+    
     res.status(500).json({ 
       error: error.message || "Failed to create transaction" 
     });
@@ -986,6 +1246,14 @@ router.put("/:id",
 
   } catch (error) {
     console.error("Error updating transaction:", error);
+    
+    // Check if error is numeric overflow
+    if (error.message && error.message.includes('numeric field overflow')) {
+      return res.status(400).json({ 
+        error: "This transaction would exceed the maximum allowed wallet balance of 9,999,999,999,999" 
+      });
+    }
+    
     res.status(500).json({ 
       error: error.message || "Failed to update transaction" 
     });

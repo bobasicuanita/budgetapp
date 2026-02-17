@@ -13,6 +13,8 @@ import { validateName } from '../utils/validators';
 import { GROUPED_CURRENCY_OPTIONS, ALL_CURRENCIES, getCurrencySymbol } from '../data/currencies';
 import { WALLET_TYPES } from '../data/walletTypes';
 import { CountryFlag } from '../components/CountryFlag';
+import { MAX_AMOUNT, formatMaxAmount } from '../utils/amountValidation';
+import { IconAlertTriangle } from '@tabler/icons-react';
 
 function Onboarding() {
   const navigate = useNavigate();
@@ -121,7 +123,7 @@ function Onboarding() {
         // Check if button should be disabled
         const isDisabled = completeMutation.isPending || 
                           (activeStep === 1 && !baseCurrency) || 
-                          (activeStep === 2 && !walletType);
+                          (activeStep === 2 && (!walletType || (startingBalance && parseFloat(startingBalance) > MAX_AMOUNT)));
         
         if (!isDisabled) {
           if (activeStep === 0) {
@@ -372,6 +374,8 @@ function Onboarding() {
                         onChange={setStartingBalance}
                         decimalScale={2}
                         thousandSeparator=","
+                        min={0}
+                        max={MAX_AMOUNT}
                         size="md"
                         className="text-input"
                         prefix={baseCurrency ? getCurrencySymbol(baseCurrency) + ' ' : ''}
@@ -379,6 +383,16 @@ function Onboarding() {
                           label: { fontSize: '12px', fontWeight: 500 }
                         }}
                       />
+                      
+                      {/* Balance overflow warning */}
+                      {startingBalance && parseFloat(startingBalance) > MAX_AMOUNT && (
+                        <Group gap="xs" wrap="nowrap" style={{ marginTop: '-8px', marginBottom: '8px' }}>
+                          <IconAlertTriangle size={16} color="var(--red-9)" style={{ flexShrink: 0 }} />
+                          <Text size="xs" c="red.9">
+                            Balance exceeds maximum allowed value of {formatMaxAmount(MAX_AMOUNT)}
+                          </Text>
+                        </Group>
+                      )}
                       
                       <Box>
                         <Checkbox
@@ -407,7 +421,11 @@ function Onboarding() {
                 size="md"
                 fullWidth
                 loading={completeMutation.isPending}
-                disabled={completeMutation.isPending || (activeStep === 1 && !baseCurrency) || (activeStep === 2 && !walletType)}
+                disabled={
+                  completeMutation.isPending || 
+                  (activeStep === 1 && !baseCurrency) || 
+                  (activeStep === 2 && (!walletType || (startingBalance && parseFloat(startingBalance) > MAX_AMOUNT)))
+                }
               >
                 {activeStep === 2 ? 'Start' : 'Continue'}
               </Button>

@@ -82,10 +82,10 @@ function AppLayout({ children }) {
       padding="md"
       styles={{
         main: {
-          backgroundColor: 'var(--blue-2)'
+          backgroundColor: 'var(--blue-3)'
         },
         navbar: {
-          backgroundColor: 'var(--blue-2)',
+          backgroundColor: 'var(--blue-3)',
           border: 'none',
           transition: 'width 0.2s ease'
         }
