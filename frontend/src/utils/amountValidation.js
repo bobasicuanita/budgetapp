@@ -1,10 +1,25 @@
 /**
  * Amount validation utilities for preventing numeric overflow
- * Maximum allowed value in database: 9,999,999,999,999 (9.999 trillion)
+ * Maximum allowed value in database: 999,999,999,999,999 (15 integer digits)
+ * Now using NUMERIC(20, 6) to support currencies with different decimal places
  */
 
-export const MAX_AMOUNT = 9999999999999;
-export const MAX_AMOUNT_LENGTH = 13; // Maximum digits allowed
+// Re-export currency validation utilities
+export {
+  MAX_INTEGER_DIGITS,
+  MAX_AMOUNT_VALUE,
+  validateCurrencyAmount,
+  getCurrencyDecimals,
+  currencySupportsDecimals,
+  getCurrencyDecimalInfo,
+  getMaxAmountDisplay,
+  exceedsMaxAmount,
+  getMaxAmountString
+} from './currencyValidation';
+
+// Legacy exports for backwards compatibility
+export const MAX_AMOUNT = 999999999999999;
+export const MAX_AMOUNT_LENGTH = 15; // Maximum integer digits allowed
 
 /**
  * Format the maximum amount with thousand separators for display

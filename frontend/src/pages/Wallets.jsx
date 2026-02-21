@@ -1,7 +1,8 @@
 import AppLayout from '../components/AppLayout';
-import { Title, Text, Stack, Group, Loader, Accordion, Box, Avatar, Divider, ActionIcon, Drawer, Button, Menu, Select, TextInput, NumberInput, Checkbox, Badge, Tooltip } from '@mantine/core';
+import { Text, Stack, Group, Loader, Accordion, Box, Avatar, Divider, ActionIcon, Drawer, Button, Menu, Select, TextInput, NumberInput, Checkbox, Badge, Tooltip } from '@mantine/core';
 import { modals } from '@mantine/modals';
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { authenticatedFetch } from '../utils/api';
 import { WALLET_TYPES } from '../data/walletTypes';
@@ -10,11 +11,13 @@ import { IconEdit, IconPlus, IconDotsVertical, IconArrowsExchange, IconReceipt, 
 import { useRipple } from '../hooks/useRipple';
 import { useWallets } from '../hooks/useWallets';
 import { CountryFlag } from '../components/CountryFlag';
-import { MAX_AMOUNT, formatMaxAmount } from '../utils/amountValidation';
+import { getCurrencyDecimals, getCurrencyDecimalInfo, getMaxAmountDisplay, exceedsMaxAmount, getMaxAmountString } from '../utils/amountValidation';
+import { showSuccessNotification, showErrorNotification } from '../utils/notifications';
 import '../styles/navigation.css';
 import '../styles/inputs.css';
 
 function Wallets() {
+  const navigate = useNavigate();
   const createRipple = useRipple();
   const queryClient = useQueryClient();
   const [drawerOpened, setDrawerOpened] = useState(false);
@@ -45,15 +48,19 @@ function Wallets() {
       return response.json();
     },
     onSuccess: () => {
-      // Invalidate and refetch wallets
+      // Invalidate and refetch wallets and transactions
       queryClient.invalidateQueries({ queryKey: ['wallets'] });
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      
+      // Show success notification
+      showSuccessNotification('Wallet created successfully');
       
       // Close drawer and reset form
       handleCloseDrawer();
     },
     onError: (error) => {
       console.error('Error creating wallet:', error);
-      alert(error.message);
+      showErrorNotification(error.message);
     }
   });
 
@@ -72,15 +79,18 @@ function Wallets() {
       return response.json();
     },
     onSuccess: () => {
-      // Invalidate and refetch wallets
+      // Invalidate and refetch wallets and transactions
       queryClient.invalidateQueries({ queryKey: ['wallets'] });
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      
+      // Show success notification
+      showSuccessNotification('Wallet updated successfully');
       
       // Close drawer and reset form
       handleCloseDrawer();
     },
     onError: (error) => {
-      console.error('Error updating wallet:', error);
-      alert(error.message);
+      showErrorNotification(error.message);
     }
   });
 
@@ -144,8 +154,7 @@ function Wallets() {
   return (
     <AppLayout>
       <Box w="100%">
-        <Group justify="space-between" align="flex-start">
-          <Title order={3}>Wallets</Title>
+        <Group justify="flex-end">
           <Button
             color="blue.9"
             radius="sm"
@@ -170,9 +179,35 @@ function Wallets() {
         
         {data && (
           <Stack gap="md">
-            <Text size="lg" fw={600}>
-              Total Net Worth: {formatCurrency(data.totalNetWorth, data.baseCurrency)}
-            </Text>
+            {data.wallets.some(w => w.currency !== data.baseCurrency) ? (
+              <Text size="lg" fw={600}>
+                Total Net Worth{' '}
+                <Tooltip
+                  label={
+                    <>
+                      This total includes assets in multiple currencies.
+                      <br /><br />
+                      All amounts have been converted to your base currency ({data.baseCurrency}) using the latest exchange rates.
+                    </>
+                  }
+                  multiline
+                  w={280}
+                  withArrow
+                  position="bottom"
+                  styles={{
+                    tooltip: { fontSize: '12px', lineHeight: 1.4 }
+                  }}
+                >
+                  <Text component="span" style={{ cursor: 'help' }}>
+                    <Text component="span" style={{ color: 'var(--gray-9)' }}>≈</Text> {formatCurrency(data.totalNetWorth, data.baseCurrency)}
+                  </Text>
+                </Tooltip>
+              </Text>
+            ) : (
+              <Text size="lg" fw={600}>
+                Total Net Worth: {formatCurrency(data.totalNetWorth, data.baseCurrency)}
+              </Text>
+            )}
             
             <Group gap="md" align="flex-start" wrap="nowrap">
               {WALLET_TYPES.map((walletType) => {
@@ -182,10 +217,19 @@ function Wallets() {
                 // Skip if no wallets of this type
                 if (walletsOfType.length === 0) return null;
                 
-                // Calculate total for this type
-                const typeTotal = walletsOfType.reduce((sum, w) => sum + parseFloat(w.current_balance), 0);
-                // Use the currency from the first wallet (assuming all wallets of the same type use the same currency)
-                const typeCurrency = walletsOfType.length > 0 ? walletsOfType[0].currency : 'USD';
+                // Calculate total for this type in base currency (all wallets converted to base currency)
+                const typeTotal = walletsOfType.reduce((sum, w) => {
+                  // Use balance_in_base_currency if available, otherwise use current_balance
+                  const balance = w.balance_in_base_currency !== undefined 
+                    ? w.balance_in_base_currency 
+                    : parseFloat(w.current_balance);
+                  return sum + balance;
+                }, 0);
+                // Always display in base currency since we're summing converted balances
+                const typeCurrency = data.baseCurrency;
+                
+                // Check if this type has any wallets in non-base currency
+                const hasNonBaseCurrency = walletsOfType.some(w => w.currency !== data.baseCurrency);
                 
                 return (
                   <Accordion 
@@ -213,7 +257,33 @@ function Wallets() {
                             <Text size="sm">{walletType.label}</Text>
                             <Text size="sm" c="gray.9">({walletsOfType.length})</Text>
                           </Group>
-                          <Text fw={600} style={{ marginRight: '12px' }}>{formatCurrency(typeTotal, typeCurrency)}</Text>
+                          {hasNonBaseCurrency ? (
+                            <Tooltip
+                              label={
+                                <>
+                                  This total includes wallets in multiple currencies.
+                                  <br /><br />
+                                  All amounts have been converted to your base currency ({data.baseCurrency}) using the latest exchange rates.
+                                </>
+                              }
+                              multiline
+                              w={280}
+                              withArrow
+                              position="bottom"
+                              styles={{
+                                tooltip: { fontSize: '12px', lineHeight: 1.4 }
+                              }}
+                            >
+                              <Text fw={600} style={{ marginRight: '12px', cursor: 'help', pointerEvents: 'auto' }}>
+                                <Text component="span" style={{ color: 'var(--gray-9)' }}>≈ </Text>
+                                {formatCurrency(typeTotal, typeCurrency)}
+                              </Text>
+                            </Tooltip>
+                          ) : (
+                            <Text fw={600} style={{ marginRight: '12px' }}>
+                              {formatCurrency(typeTotal, typeCurrency)}
+                            </Text>
+                          )}
                         </Group>
                       </Accordion.Control>
                       <Divider />
@@ -321,8 +391,7 @@ function Wallets() {
                                       <Menu.Item
                                         leftSection={<IconReceipt size={16} />}
                                         onClick={() => {
-                                          // TODO: Handle view transactions
-                                          console.log('View Wallet Details for wallet:', wallet.id);
+                                          navigate(`/wallets/${wallet.id}`);
                                         }}
                                       >
                                         Wallet Details
@@ -354,13 +423,51 @@ function Wallets() {
         title={selectedWallet ? "Edit Wallet" : "Add New Wallet"}
         size="md"
         styles={{
-          title: { 
-            fontSize: '24px', 
-            fontWeight: 700 
+          title: {
+            fontSize: '24px',
+            fontWeight: 700
           }
         }}
       >
-        <Stack gap="lg">
+        <Stack 
+          gap="lg"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+              // Check if submit button would be disabled
+              const isDisabled = 
+                !newWalletType || 
+                !newWalletCurrency || 
+                (selectedWallet && !hasWalletChanged()) || 
+                createWalletMutation.isPending || 
+                updateWalletMutation.isPending ||
+                exceedsMaxAmount(newWalletBalance, newWalletCurrency);
+              
+              if (!isDisabled) {
+                e.preventDefault();
+                if (selectedWallet) {
+                  updateWalletMutation.mutate({
+                    id: selectedWallet.id,
+                    walletData: {
+                      type: newWalletType,
+                      name: newWalletName || undefined,
+                      currency: newWalletCurrency,
+                      starting_balance: newWalletBalance,
+                      include_in_balance: includeInBalance
+                    }
+                  });
+                } else {
+                  createWalletMutation.mutate({
+                    type: newWalletType,
+                    name: newWalletName || undefined,
+                    currency: newWalletCurrency,
+                    starting_balance: newWalletBalance,
+                    include_in_balance: includeInBalance
+                  });
+                }
+              }
+            }
+          }}
+        >
           <Text size="sm" c="gray.11">
             {selectedWallet ? "Edit your wallet details below" : "Create a new wallet to track your money"}
           </Text>
@@ -439,29 +546,60 @@ function Wallets() {
             
             <NumberInput
               label="Starting Balance (Optional)"
-              placeholder="0.00"
+              placeholder={newWalletCurrency ? (getCurrencyDecimals(newWalletCurrency) === 0 ? "0" : "0." + "0".repeat(getCurrencyDecimals(newWalletCurrency))) : "0.00"}
               value={newWalletBalance}
               onChange={setNewWalletBalance}
-              decimalScale={2}
+              onBlur={(e) => {
+                // Get the raw string value from the input to avoid floating point precision loss
+                const rawValue = e.target.value?.replace(/,/g, '').replace(/[^\d.]/g, '');
+                
+                // Auto-correct to max if exceeded (check raw string value)
+                if (rawValue && newWalletCurrency && exceedsMaxAmount(rawValue, newWalletCurrency)) {
+                  setNewWalletBalance(getMaxAmountString(newWalletCurrency));
+                }
+              }}
+              decimalScale={newWalletCurrency ? getCurrencyDecimals(newWalletCurrency) : 2}
+              fixedDecimalScale={newWalletCurrency ? getCurrencyDecimals(newWalletCurrency) > 0 : true}
               thousandSeparator=","
               min={0}
-              max={MAX_AMOUNT}
               size="md"
               className="text-input"
               prefix={newWalletCurrency ? getCurrencySymbol(newWalletCurrency) + ' ' : ''}
+              disabled={selectedWallet && selectedWallet.has_user_transactions}
               styles={{
                 label: { fontSize: '12px', fontWeight: 500 }
               }}
             />
             
-            {/* Balance overflow warning */}
-            {newWalletBalance && parseFloat(newWalletBalance) > MAX_AMOUNT && (
-              <Group gap="xs" wrap="nowrap" style={{ marginTop: '-8px' }}>
-                <IconAlertTriangle size={16} color="var(--red-9)" style={{ flexShrink: 0 }} />
-                <Text size="xs" c="red.9">
-                  Balance exceeds maximum allowed value of {formatMaxAmount(MAX_AMOUNT)}
+            {/* Currency decimal info message */}
+            {(() => {
+              const decimalInfo = newWalletCurrency ? getCurrencyDecimalInfo(newWalletCurrency) : null;
+              const hasValue = newWalletBalance && parseFloat(newWalletBalance) > 0;
+              return decimalInfo && hasValue ? (
+                <Text size="xs" c="gray.9" style={{ marginTop: '-8px' }}>
+                  {decimalInfo}
                 </Text>
-              </Group>
+              ) : null;
+            })()}
+            
+            {/* Balance overflow warning */}
+            {(() => {
+              if (!newWalletBalance || !newWalletCurrency) return null;
+              return exceedsMaxAmount(newWalletBalance, newWalletCurrency) ? (
+                <Group gap="xs" wrap="nowrap" style={{ marginTop: '-8px' }}>
+                  <IconAlertTriangle size={16} color="var(--red-9)" style={{ flexShrink: 0 }} />
+                  <Text size="xs" c="red.9">
+                    Balance exceeds maximum allowed amount of {getMaxAmountDisplay(newWalletCurrency)}
+                  </Text>
+                </Group>
+              ) : null;
+            })()}
+            
+            {/* Edit mode warning: Cannot edit initial balance when wallet has transactions */}
+            {selectedWallet && selectedWallet.has_user_transactions && (
+              <Text size="xs" style={{ color: 'var(--gray-9)', marginTop: '-8px' }}>
+                Cannot edit initial balance for a wallet with existing transactions. Use the 'Adjust Balance' feature instead.
+              </Text>
             )}
             
             <Box>
@@ -488,7 +626,7 @@ function Wallets() {
                 (selectedWallet && !hasWalletChanged()) || 
                 createWalletMutation.isPending || 
                 updateWalletMutation.isPending ||
-                (newWalletBalance && parseFloat(newWalletBalance) > MAX_AMOUNT)
+                exceedsMaxAmount(newWalletBalance, newWalletCurrency)
               }
               loading={createWalletMutation.isPending || updateWalletMutation.isPending}
               onClick={() => {

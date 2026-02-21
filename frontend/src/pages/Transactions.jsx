@@ -1,10 +1,17 @@
 import AppLayout from '../components/AppLayout';
-import { Button, Drawer, Stack, Text, NumberInput, Chip, Group, Select, MultiSelect, Badge, Box, TextInput, Tooltip, Accordion, Loader, Divider, Grid, Title, Popover, Modal, Checkbox, Skeleton } from '@mantine/core';
-import { DateInput, DatePickerInput } from '@mantine/dates';
-import { useState, useMemo, useEffect, useRef, memo, useCallback } from 'react';
+import { Button, Stack, Text, Group, Box, Loader, Tooltip, Grid, Skeleton, Menu, ActionIcon, Checkbox, Modal, LoadingOverlay } from '@mantine/core';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useDebouncedValue } from '@mantine/hooks';
-import { IconPlus, IconCalendar, IconAlertTriangle, IconFilter, IconEdit, IconTrash, IconSearch, IconX, IconArrowsRightLeft, IconDownload } from '@tabler/icons-react';
+import { notifications } from '@mantine/notifications';
+import { useFilterDrawer } from '../contexts/FilterDrawerContext';
+import { 
+  IconActivity, 
+  IconDownload, 
+  IconCash,
+  IconDotsVertical,
+  IconTrash
+} from '@tabler/icons-react';
 import dayjs from 'dayjs';
 import { v4 as uuidv4 } from 'uuid';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -13,369 +20,32 @@ import { useRipple } from '../hooks/useRipple';
 import { useWallets } from '../hooks/useWallets';
 import { useReferenceData } from '../hooks/useReferenceData';
 import { useTransactions } from '../hooks/useTransactions';
-import { formatCurrency } from '../data/currencies';
 import { authenticatedFetch } from '../utils/api';
-import { MAX_AMOUNT } from '../utils/amountValidation';
+import { MAX_AMOUNT, exceedsMaxAmount, getMaxAmountString, getMaxAmountDisplay } from '../utils/amountValidation';
+import { 
+  TransactionSummaryBoxes, 
+  TransactionSearch, 
+  TransactionDateFilter, 
+  TransactionFilters, 
+  TransactionDrawer, 
+  TransactionList,
+  DeleteConfirmationModal 
+} from '../components/transactions';
 import '../styles/inputs.css';
-
-// Memoized transaction item component to prevent unnecessary re-renders
-const TransactionItem = memo(({ transaction, isLastItem, onEdit, onDelete }) => {
-  return (
-    <div key={transaction.id}>
-      <Accordion.Item value={transaction.id.toString()}>
-        <Accordion.Control>
-          <Grid align="center" gutter="xs">
-            {/* Merchant/Counterparty/Transfer Info */}
-            <Grid.Col span={3}>
-              <Text 
-                size="sm" 
-                fw={500} 
-                style={{ 
-                  color: transaction.type === 'transfer'
-                    ? 'var(--gray-12)'
-                    : transaction.type === 'income' 
-                    ? (transaction.counterparty ? 'var(--gray-12)' : 'var(--gray-9)')
-                    : (transaction.merchant ? 'var(--gray-12)' : 'var(--gray-9)')
-                }}
-              >
-                {transaction.type === 'transfer' 
-                  ? `From ${transaction.wallet_name} → To ${transaction.to_wallet_name}`
-                  : transaction.type === 'income' 
-                  ? (transaction.counterparty || '[No source specified]')
-                  : (transaction.merchant || '[No merchant specified]')
-                }
-              </Text>
-            </Grid.Col>
-
-            {/* Category icon + name */}
-            <Grid.Col span={3}>
-              <Group gap="xs" wrap="nowrap">
-                {transaction.type === 'transfer' ? (
-                  <IconArrowsRightLeft size={18} style={{ color: 'var(--blue-9)' }} />
-                ) : transaction.category_icon ? (
-                  <Text size="md" style={{ lineHeight: 1 }}>
-                    {transaction.category_icon}
-                  </Text>
-                ) : null}
-                <Text size="sm" fw={500} style={{ color: 'var(--gray-12)' }}>
-                  {transaction.category_name || 'Transfer'}
-                </Text>
-              </Group>
-            </Grid.Col>
-
-            {/* Wallet name(s) */}
-            <Grid.Col span={3}>
-              <Text size="sm" fw={500} style={{ color: 'var(--gray-12)' }}>
-                {transaction.type === 'transfer' 
-                  ? `${transaction.wallet_name}, ${transaction.to_wallet_name}`
-                  : transaction.wallet_name
-                }
-              </Text>
-            </Grid.Col>
-
-            {/* Amount */}
-            <Grid.Col span={3}>
-              <Text 
-                size="sm" 
-                fw={500}
-                style={{ 
-                  textAlign: 'right',
-                  marginRight: '16px',
-                  color: transaction.type === 'income' ? 'var(--green-9)' : transaction.type === 'expense' ? 'var(--gray-12)' : 'var(--blue-9)'
-                }}
-              >
-                {transaction.type === 'income' ? '+' : ''}
-                {formatCurrency(Math.abs(transaction.amount), transaction.currency)}
-              </Text>
-            </Grid.Col>
-          </Grid>
-        </Accordion.Control>
-
-        <Accordion.Panel>
-          <Box p="sm">
-            <Stack gap="sm">
-              {/* Description, Tags, and Transfer Details in one row */}
-              <Grid gutter="md">
-                {/* Description */}
-                <Grid.Col span={transaction.type === 'transfer' ? 6 : 6}>
-                  <Box>
-                    <Text size="xs" fw={500} style={{ color: 'var(--gray-11)', marginBottom: '4px' }}>
-                      Description:
-                    </Text>
-                    <Text size="sm" style={{ color: transaction.description ? 'var(--gray-12)' : 'var(--gray-9)' }}>
-                      {transaction.description || 'No description'}
-                    </Text>
-                  </Box>
-                </Grid.Col>
-                
-                {/* Tags (not for transfers) */}
-                {transaction.type !== 'transfer' && (
-                  <Grid.Col span={6}>
-                    <Box>
-                      <Text size="xs" fw={500} style={{ color: 'var(--gray-11)', marginBottom: '6px' }}>
-                        Tags:
-                      </Text>
-                      {transaction.tags && transaction.tags.length > 0 ? (
-                        <Group gap="xs">
-                          {transaction.tags.map(tag => (
-                            <Badge 
-                              key={tag.id} 
-                              size="sm"
-                              variant="filled"
-                              color="blue.9"
-                            >
-                              {tag.name}
-                            </Badge>
-                          ))}
-                        </Group>
-                      ) : (
-                        <Text size="sm" style={{ color: 'var(--gray-12)' }}>
-                          —
-                        </Text>
-                      )}
-                    </Box>
-                  </Grid.Col>
-                )}
-
-                {/* Transfer wallet details (only for transfers) */}
-                {transaction.type === 'transfer' && (
-                  <Grid.Col span={6}>
-                    <Box>
-                      <Text size="xs" fw={500} style={{ color: 'var(--gray-11)', marginBottom: '4px' }}>
-                        Transfer:
-                      </Text>
-                      <Group gap="xs" wrap="nowrap">
-                        <Text size="xs" fw={500} style={{ color: 'var(--gray-11)' }}>
-                          From wallet:
-                        </Text>
-                        <Text size="xs" style={{ color: 'var(--gray-12)' }}>
-                          {transaction.wallet_name}
-                        </Text>
-                      </Group>
-                      <Group gap="xs" wrap="nowrap" mt={4}>
-                        <Text size="xs" fw={500} style={{ color: 'var(--gray-11)' }}>
-                          To wallet:
-                        </Text>
-                        <Text size="xs" style={{ color: 'var(--gray-12)' }}>
-                          {transaction.to_wallet_name}
-                        </Text>
-                      </Group>
-                    </Box>
-                  </Grid.Col>
-                )}
-              </Grid>
-
-              <Divider/>
-
-              {/* Created/Updated at and Actions - same row */}
-              <Group justify="space-between" align="center">
-                <Group gap="md" divider={<Divider orientation="vertical" />}>
-                  <Box>
-                    <Text size="xs" style={{ color: 'var(--gray-11)' }}>
-                      Created at: <Text component="span" fw={600}>{new Date(transaction.created_at).toLocaleString('en-GB', { 
-                        day: 'numeric', 
-                        month: 'short', 
-                        year: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}</Text>
-                    </Text>
-                  </Box>
-                  
-                  {new Date(transaction.updated_at).getTime() !== new Date(transaction.created_at).getTime() && (
-                    <Box>
-                      <Text size="xs" style={{ color: 'var(--gray-11)' }}>
-                        Last updated at: <Text component="span" fw={700}>{new Date(transaction.updated_at).toLocaleString('en-GB', { 
-                          day: 'numeric', 
-                          month: 'short', 
-                          year: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}</Text>
-                      </Text>
-                    </Box>
-                  )}
-                </Group>
-
-                {/* Actions */}
-                <Group gap="xs">
-                  <Button
-                    variant="subtle"
-                    size="xs"
-                    color="blue.9"
-                    c="blue.9"
-                    leftSection={<IconEdit size={14} />}
-                    onClick={() => onEdit(transaction)}
-                  >
-                    Edit
-                  </Button>
-                  <Button
-                    variant="subtle"
-                    size="xs"
-                    color="red.9"
-                    c="red.9"
-                    leftSection={<IconTrash size={14} />}
-                    onClick={() => onDelete(transaction)}
-                  >
-                    Delete
-                  </Button>
-                </Group>
-              </Group>
-            </Stack>
-          </Box>
-        </Accordion.Panel>
-      </Accordion.Item>
-      
-      {/* Add divider after each transaction */}
-      {!isLastItem && (
-        <Divider my={4} />
-      )}
-    </div>
-  );
-});
-
-TransactionItem.displayName = 'TransactionItem';
-
-// Memoized date group component
-const DateGroup = memo(({ group, onEdit, onDelete }) => {
-  return (
-    <div key={group.label}>
-      {/* Date header */}
-      <Box 
-        p="xs"
-        style={{ 
-          backgroundColor: 'var(--gray-2)',
-          borderRadius: '4px',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center'
-        }}
-      >
-        <Text size="sm" fw={500} style={{ color: 'var(--gray-12)' }}>
-          {group.label}
-        </Text>
-        <Text 
-          size="sm" 
-          fw={600} 
-          style={{ 
-            color: group.sum >= 0 ? 'var(--green-9)' : 'var(--gray-12)' 
-          }}
-        >
-          {group.sum >= 0 ? '+' : ''}
-          {formatCurrency(Math.abs(group.sum), group.currency)}
-        </Text>
-      </Box>
-
-      {/* Transactions for this date */}
-      <Accordion
-        styles={{
-          item: {
-            border: 'none',
-            borderRadius: 0
-          },
-          control: {
-            paddingTop: '8px',
-            paddingBottom: '8px',
-            '&:hover': {
-              backgroundColor: 'var(--blue-2)',
-            }
-          },
-          label: {
-            padding: 0
-          },
-          content: {
-            padding: 0
-          }
-        }}
-      >
-        {group.transactions.map((transaction, index) => (
-          <TransactionItem
-            key={transaction.id}
-            transaction={transaction}
-            isLastItem={index === group.transactions.length - 1}
-            onEdit={onEdit}
-            onDelete={onDelete}
-          />
-        ))}
-      </Accordion>
-    </div>
-  );
-});
-
-DateGroup.displayName = 'DateGroup';
-
-// Memoized transaction list component - prevents re-renders when drawer state changes
-const TransactionList = memo(({ 
-  groupedTransactions, 
-  transactionsLoading, 
-  hasActiveFilters,
-  isFetchingNextPage,
-  loadMoreRef,
-  onEdit, 
-  onDelete 
-}) => {
-  if (transactionsLoading) {
-    return (
-      <Box style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '200px' }}>
-        <Loader color="blue.9" size="md" />
-      </Box>
-    );
-  }
-
-  if (groupedTransactions.length === 0) {
-    return (
-      <Box style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--gray-9)' }}>
-        <Text size="lg" fw={500} style={{ color: 'var(--gray-11)' }}>
-          {hasActiveFilters ? 'No transactions match the selected filters' : 'No transactions found'}
-        </Text>
-        {!hasActiveFilters && (
-          <Text size="sm" mt="xs" style={{ color: 'var(--gray-9)' }}>
-            Create your first transaction to get started
-          </Text>
-        )}
-      </Box>
-    );
-  }
-
-  return (
-    <>
-      <Stack gap={0}>
-        {groupedTransactions.map((group) => (
-          <DateGroup
-            key={group.label}
-            group={group}
-            onEdit={onEdit}
-            onDelete={onDelete}
-          />
-        ))}
-      </Stack>
-      
-      {/* Infinite scroll sentinel - triggers loading when visible */}
-      {isFetchingNextPage && (
-        <Box 
-          style={{ 
-            textAlign: 'center', 
-            padding: '16px'
-          }}
-        >
-          <Loader color="blue.9" size="sm" />
-        </Box>
-      )}
-      
-      {/* Hidden sentinel for intersection observer */}
-      <div ref={loadMoreRef} style={{ height: '1px' }} />
-    </>
-  );
-});
-
-TransactionList.displayName = 'TransactionList';
-
 function Transactions() {
   const createRipple = useRipple();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const [drawerOpened, setDrawerOpened] = useState(false);
-  const [filtersDrawerOpened, setFiltersDrawerOpened] = useState(false);
+  
+  // Use context for filter drawer state (lifted above router level)
+  const { isOpen: isFiltersDrawerOpen, openDrawer, closeDrawer } = useFilterDrawer();
+  
+  // CSV export state
+  const [isExporting, setIsExporting] = useState(false);
+  const [canExportAgain, setCanExportAgain] = useState(true);
+  const [cooldownSeconds, setCooldownSeconds] = useState(0);
+  
   const [editMode, setEditMode] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState(null);
   const [originalValues, setOriginalValues] = useState(null);
@@ -394,6 +64,11 @@ function Transactions() {
   const [showTagInput, setShowTagInput] = useState(false);
   const [tagSearchValue, setTagSearchValue] = useState('');
   
+  // Exchange rate state
+  const [exchangeRateInfo, setExchangeRateInfo] = useState(null);
+  const [manualExchangeRate, setManualExchangeRate] = useState('');
+  const [checkingExchangeRate, setCheckingExchangeRate] = useState(false);
+  
   // Date filter state - initialize from URL
   const [dateFilterType, setDateFilterType] = useState(() => searchParams.get('dateFilter') || 'thisMonth');
   const [dateRange, setDateRange] = useState(() => {
@@ -404,8 +79,6 @@ function Transactions() {
     }
     return null;
   });
-  const [tempDateRange, setTempDateRange] = useState([null, null]);
-  const [datePopoverOpened, setDatePopoverOpened] = useState(false);
   
   // Advanced filters state - initialize from URL
   const [filterTransactionTypes, setFilterTransactionTypes] = useState(() => {
@@ -428,11 +101,10 @@ function Transactions() {
   const [filterMaxAmount, setFilterMaxAmount] = useState(() => searchParams.get('maxAmount') || '');
   const [filterCounterparty, setFilterCounterparty] = useState(() => searchParams.get('search') || '');
   const [filterIncludeFuture, setFilterIncludeFuture] = useState(() => searchParams.get('includeFuture') === 'true');
+  const [filterCurrencyType, setFilterCurrencyType] = useState(() => searchParams.get('currencyType') || 'all');
+  const [filterSelectedCurrency, setFilterSelectedCurrency] = useState(() => searchParams.get('currency') || 'all');
   
   // Search state
-  const [searchExpanded, setSearchExpanded] = useState(() => !!searchParams.get('search'));
-  const [searchCollapsing, setSearchCollapsing] = useState(false);
-  const [searchQuery, setSearchQuery] = useState(() => searchParams.get('search') || '');
   const [appliedSearchQuery, setAppliedSearchQuery] = useState(() => searchParams.get('search') || '');
   
   // Debounced versions of text/number inputs (500ms delay)
@@ -444,14 +116,17 @@ function Transactions() {
   const [deleteModalOpened, setDeleteModalOpened] = useState(false);
   const [transactionToDelete, setTransactionToDelete] = useState(null);
   
+  // Bulk delete state
+  const [bulkDeleteMode, setBulkDeleteMode] = useState(false);
+  const [selectedTransactions, setSelectedTransactions] = useState([]);
+  const [bulkDeleteModalOpened, setBulkDeleteModalOpened] = useState(false);
+  const [isSelectingAll, setIsSelectingAll] = useState(false);
+  
   // Idempotency key for preventing duplicate submissions
   const [idempotencyKey, setIdempotencyKey] = useState(null);
   
   // Ref for amount input to programmatically focus
   const amountInputRef = useRef(null);
-  
-  // Ref for search input to programmatically focus
-  const searchInputRef = useRef(null);
   
   // Ref for infinite scroll sentinel
   const loadMoreRef = useRef(null);
@@ -571,6 +246,18 @@ function Transactions() {
       filters.search = debouncedCounterparty.trim();
     }
     
+    // Currency filter
+    if (filterCurrencyType === 'base') {
+      filters.currency = walletsData?.baseCurrency || 'USD';
+    } else if (filterCurrencyType === 'others') {
+      if (filterSelectedCurrency && filterSelectedCurrency !== 'all') {
+        filters.currency = filterSelectedCurrency;
+      } else {
+        // "Others" with "All" selected - exclude base currency
+        filters.exclude_base_currency = 'true';
+      }
+    }
+    
     return filters;
   }, [
     actualDateRange, 
@@ -582,7 +269,10 @@ function Transactions() {
     debouncedMaxAmount, 
     appliedSearchQuery,
     debouncedCounterparty,
-    filterIncludeFuture
+    filterIncludeFuture,
+    filterCurrencyType,
+    filterSelectedCurrency,
+    walletsData
   ]);
   
   const { 
@@ -606,7 +296,8 @@ function Transactions() {
            filterMaxAmount !== '' ||
            appliedSearchQuery.trim() !== '' ||
            filterCounterparty.trim() !== '' ||
-           filterIncludeFuture === true;
+           filterIncludeFuture === true ||
+           filterCurrencyType !== 'all';
   }, [
     dateFilterType,
     filterTransactionTypes,
@@ -617,34 +308,92 @@ function Transactions() {
     filterMaxAmount,
     appliedSearchQuery,
     filterCounterparty,
-    filterIncludeFuture
+    filterIncludeFuture,
+    filterCurrencyType
   ]);
 
-  // Count active filters (excluding date and search)
-  const activeFilterCount = useMemo(() => {
-    let count = 0;
-    if (filterTransactionTypes.length > 0) count += filterTransactionTypes.length;
-    if (filterWallets.length > 0) count += filterWallets.length;
-    if (filterCategories.length > 0) count += filterCategories.length;
-    if (filterTags.length > 0) count += filterTags.length;
-    if (filterMinAmount !== '' || filterMaxAmount !== '') count += 1;
-    if (filterCounterparty.trim() !== '') count += 1;
-    if (filterIncludeFuture === true) count += 1;
-    return count;
-  }, [
-    filterTransactionTypes,
-    filterWallets,
-    filterCategories,
-    filterTags,
-    filterMinAmount,
-    filterMaxAmount,
-    filterCounterparty,
-    filterIncludeFuture
-  ]);
 
   // Track if we're transitioning from filtered to unfiltered state
   const [isTransitioning, setIsTransitioning] = useState(false);
 
+  // Check exchange rate availability when date or wallet currency changes
+  const checkExchangeRate = useCallback(async (dateToCheck, currencyToCheck) => {
+    if (!dateToCheck || !currencyToCheck) return;
+    
+    // Format date to YYYY-MM-DD
+    const dateObj = dateToCheck instanceof Date ? dateToCheck : new Date(dateToCheck);
+    const year = dateObj.getFullYear();
+    const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const day = String(dateObj.getDate()).padStart(2, '0');
+    const formattedDate = `${year}-${month}-${day}`;
+    
+    setCheckingExchangeRate(true);
+    
+    try {
+      const response = await authenticatedFetch(
+        `/api/exchange-rates/availability?date=${formattedDate}&currency=${currencyToCheck}`
+      );
+      
+      if (response.ok) {
+        const data = await response.json();
+        setExchangeRateInfo(data);
+        
+        // Clear manual rate if exact match found or if not required
+        if (data.exactMatch || !data.requiresManualInput) {
+          setManualExchangeRate('');
+        }
+      } else {
+        console.error('Failed to check exchange rate');
+        setExchangeRateInfo(null);
+      }
+    } catch (error) {
+      console.error('Error checking exchange rate:', error);
+      setExchangeRateInfo(null);
+    } finally {
+      setCheckingExchangeRate(false);
+    }
+  }, []);
+
+  // Check exchange rate when date or wallet changes (only when drawer is open)
+  useEffect(() => {
+    if (!drawerOpened) return;
+    
+    let currencyToCheck = null;
+    let shouldCheck = false;
+    
+    // Determine which currency to check based on transaction type
+    if (transactionType === 'transfer') {
+      // For transfers, check if wallets have different currencies
+      const fromWallet = walletsData?.wallets?.find(w => w.id === parseInt(fromWalletId));
+      const toWallet = walletsData?.wallets?.find(w => w.id === parseInt(toWalletId));
+      const userBaseCurrency = walletsData?.baseCurrency || 'USD';
+      
+      // Only check if both wallets selected and currencies are different
+      if (fromWallet && toWallet && fromWallet.currency !== toWallet.currency) {
+        // Check the non-base currency wallet
+        // If FROM is base currency, check TO wallet; otherwise check FROM wallet
+        if (fromWallet.currency === userBaseCurrency) {
+          currencyToCheck = toWallet.currency;
+        } else {
+          currencyToCheck = fromWallet.currency;
+        }
+        shouldCheck = true;
+      }
+    } else {
+      // For income/expense, check the selected wallet currency
+      const wallet = walletsData?.wallets?.find(w => w.id === parseInt(walletId));
+      currencyToCheck = wallet?.currency;
+      shouldCheck = currencyToCheck !== undefined;
+    }
+    
+    if (shouldCheck && currencyToCheck && date) {
+      checkExchangeRate(date, currencyToCheck);
+    } else {
+      // Clear exchange rate info if conditions not met
+      setExchangeRateInfo(null);
+      setManualExchangeRate('');
+    }
+  }, [drawerOpened, date, walletId, fromWalletId, toWalletId, transactionType, walletsData, checkExchangeRate]);
 
   // Create transaction mutation
   const createTransactionMutation = useMutation({
@@ -790,15 +539,63 @@ function Transactions() {
     }
   });
 
+  // Bulk delete transactions mutation
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (transactionIds) => {
+      const response = await authenticatedFetch(`/api/transactions/bulk-delete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ transactionIds }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to delete transactions');
+      }
+
+      return response.json();
+    },
+    onSuccess: (data) => {
+      // Close modal and reset bulk delete state
+      setBulkDeleteModalOpened(false);
+      setBulkDeleteMode(false);
+      setSelectedTransactions([]);
+      setIsSelectingAll(false);
+      
+      // Invalidate wallet queries to refresh balances
+      queryClient.invalidateQueries({ queryKey: ['wallets'] });
+      
+      // Invalidate transactions queries to refresh list
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      
+      // Show success notification
+      const count = data.count || selectedTransactions.length;
+      showSuccessNotification(`${count} ${count === 1 ? 'transaction' : 'transactions'} deleted.`);
+    },
+    onError: (error) => {
+      // Show error notification
+      showErrorNotification(error.message || 'Failed to delete transactions');
+    }
+  });
+
 
   // Filter categories based on transaction type
+  // Exclude system transaction categories (Initial Balance, Balance Adjustment) from user selection
   const filteredCategories = useMemo(() => {
     if (!referenceData?.categories) return [];
 
+    const systemTransactionCategories = ['Initial Balance', 'Balance Adjustment'];
+
     if (transactionType === 'income') {
-      return referenceData.categories.filter(cat => cat.type === 'income');
+      return referenceData.categories.filter(cat => 
+        cat.type === 'income' && !systemTransactionCategories.includes(cat.name)
+      );
     } else if (transactionType === 'expense') {
-      return referenceData.categories.filter(cat => cat.type === 'expense');
+      return referenceData.categories.filter(cat => 
+        cat.type === 'expense' && !systemTransactionCategories.includes(cat.name)
+      );
     }
     
     return [];
@@ -880,65 +677,57 @@ function Transactions() {
 
   // Check if amount would cause numeric overflow
   const amountOverflowWarning = useMemo(() => {
-    if (!amount || !walletsData?.wallets) return null;
+    if (!amount || !walletsData?.wallets || walletsData.totalNetWorth === undefined) return null;
 
     const amountNum = parseFloat(amount);
     if (isNaN(amountNum)) return null;
 
-    // Check if amount itself exceeds maximum for any transaction type
-    if (amountNum > MAX_AMOUNT) {
-      // Get wallet info for proper currency and calculation
-      let selectedWallet = null;
-      if (transactionType === 'income' && walletId) {
-        selectedWallet = walletsData.wallets.find(w => w.id.toString() === walletId);
-      } else if (transactionType === 'expense' && walletId) {
-        selectedWallet = walletsData.wallets.find(w => w.id.toString() === walletId);
-      } else if (transactionType === 'transfer' && toWalletId) {
-        selectedWallet = walletsData.wallets.find(w => w.id.toString() === toWalletId);
-      }
-
+    const netWorth = walletsData.totalNetWorth;
+    const baseCurrency = walletsData.baseCurrency || 'USD';
+    
+    // Get the relevant wallet's currency for validation
+    let walletCurrency = baseCurrency;
+    if (transactionType === 'income' || transactionType === 'expense') {
+      const selectedWallet = walletsData.wallets.find(w => w.id.toString() === walletId);
       if (selectedWallet) {
-        const maxAllowed = transactionType === 'income' || transactionType === 'transfer'
-          ? MAX_AMOUNT - selectedWallet.current_balance
-          : MAX_AMOUNT; // For expenses, just use MAX_AMOUNT
-        
-        return {
-          type: 'wallet_overflow',
-          maxAllowed,
-          currency: selectedWallet.currency,
-          currentBalance: selectedWallet.current_balance
-        };
+        walletCurrency = selectedWallet.currency;
       }
+    } else if (transactionType === 'transfer' && fromWalletId) {
+      const fromWallet = walletsData.wallets.find(w => w.id.toString() === fromWalletId);
+      if (fromWallet) {
+        walletCurrency = fromWallet.currency;
+      }
+    }
 
-      // Fallback if no wallet selected
+    // Check if amount itself exceeds currency-specific maximum
+    if (exceedsMaxAmount(amount, walletCurrency)) {
       return {
-        type: 'wallet_overflow',
-        maxAllowed: MAX_AMOUNT,
-        currency: 'USD',
-        currentBalance: 0
+        type: 'amount_overflow',
+        maxAllowedString: getMaxAmountString(walletCurrency),
+        maxAllowedDisplay: getMaxAmountDisplay(walletCurrency),
+        currency: walletCurrency,
+        message: `Maximum transaction amount for ${walletCurrency} is ${getMaxAmountDisplay(walletCurrency)}`
       };
     }
 
-    // Check if transaction would cause wallet to exceed maximum
+    // Check if transaction would cause net worth to exceed maximum
     if (transactionType === 'income' && walletId) {
-      const selectedWallet = walletsData.wallets.find(w => w.id.toString() === walletId);
-      if (selectedWallet) {
-        const newBalance = selectedWallet.current_balance + amountNum;
-        if (newBalance > MAX_AMOUNT) {
-          const maxAllowed = MAX_AMOUNT - selectedWallet.current_balance;
-          return {
-            type: 'wallet_overflow',
-            maxAllowed,
-            currency: selectedWallet.currency,
-            currentBalance: selectedWallet.current_balance
-          };
-        }
+      const newNetWorth = netWorth + amountNum;
+      if (newNetWorth > MAX_AMOUNT) {
+        const maxAllowed = MAX_AMOUNT - netWorth;
+        return {
+          type: 'networth_overflow',
+          maxAllowed,
+          currency: baseCurrency,
+          currentNetWorth: netWorth
+        };
       }
     } else if (transactionType === 'transfer' && toWalletId) {
+      // Transfers don't change net worth, but check if destination wallet exists
       const selectedWallet = walletsData.wallets.find(w => w.id.toString() === toWalletId);
       if (selectedWallet) {
-        const newBalance = selectedWallet.current_balance + amountNum;
-        if (newBalance > MAX_AMOUNT) {
+        const newWalletBalance = selectedWallet.current_balance + amountNum;
+        if (newWalletBalance > MAX_AMOUNT) {
           const maxAllowed = MAX_AMOUNT - selectedWallet.current_balance;
           return {
             type: 'wallet_overflow',
@@ -952,26 +741,29 @@ function Transactions() {
     }
 
     return null;
-  }, [amount, transactionType, walletId, toWalletId, walletsData]);
+  }, [amount, transactionType, walletId, fromWalletId, toWalletId, walletsData]);
 
   // Calculate dynamic max amount for NumberInput (prevents clamping to wrong value on blur)
   const maxAllowedAmount = useMemo(() => {
-    if (!walletsData?.wallets) return MAX_AMOUNT;
+    if (!walletsData?.wallets || walletsData.totalNetWorth === undefined) return MAX_AMOUNT;
 
-    if (transactionType === 'income' && walletId) {
+    // Get the relevant wallet's currency
+    let walletCurrency = walletsData.baseCurrency || 'USD';
+    if (transactionType === 'income' || transactionType === 'expense') {
       const selectedWallet = walletsData.wallets.find(w => w.id.toString() === walletId);
       if (selectedWallet) {
-        return MAX_AMOUNT - selectedWallet.current_balance;
+        walletCurrency = selectedWallet.currency;
       }
-    } else if (transactionType === 'transfer' && toWalletId) {
-      const selectedWallet = walletsData.wallets.find(w => w.id.toString() === toWalletId);
-      if (selectedWallet) {
-        return MAX_AMOUNT - selectedWallet.current_balance;
+    } else if (transactionType === 'transfer' && fromWalletId) {
+      const fromWallet = walletsData.wallets.find(w => w.id.toString() === fromWalletId);
+      if (fromWallet) {
+        walletCurrency = fromWallet.currency;
       }
     }
-
-    return MAX_AMOUNT;
-  }, [transactionType, walletId, toWalletId, walletsData]);
+    
+    // Use currency-specific maximum
+    return parseFloat(getMaxAmountString(walletCurrency));
+  }, [transactionType, walletId, fromWalletId, walletsData]);
 
   // Check if transaction should be blocked (only cash wallets cannot be overdrawn)
   const isOverdraftBlocked = useMemo(() => {
@@ -1074,24 +866,24 @@ function Transactions() {
           date: transactionDate,
           transactions: [],
           sum: 0,
-          currency: null
+          currency: walletsData?.baseCurrency || 'USD' // Use user's base currency
         };
       }
       
       groups[dateLabel].transactions.push(transaction);
-      // Calculate daily sum (exclude transfers - they don't affect net worth)
-      if (transaction.type !== 'transfer') {
-        groups[dateLabel].sum += parseFloat(transaction.amount) || 0;
-      }
-      // Use the first transaction's currency
-      if (!groups[dateLabel].currency) {
-        groups[dateLabel].currency = transaction.currency;
+      // Calculate daily sum (exclude transfers and system transactions)
+      // Use base_currency_amount for proper multi-currency support
+      if (transaction.type !== 'transfer' && !transaction.is_system) {
+        const baseAmount = transaction.base_currency_amount !== null && transaction.base_currency_amount !== undefined
+          ? parseFloat(transaction.base_currency_amount)
+          : parseFloat(transaction.amount); // Fallback for old transactions without base_currency_amount
+        groups[dateLabel].sum += baseAmount || 0;
       }
     });
 
     // Convert to array and sort by date descending
     return Object.values(groups).sort((a, b) => b.date - a.date);
-  }, [transactionsData]);
+  }, [transactionsData, walletsData]);
 
   // Get all selected tag IDs (both suggested and custom)
   const allSelectedTagIds = useMemo(() => {
@@ -1115,56 +907,6 @@ function Transactions() {
         tag: tag
       }));
   }, [referenceData, allSelectedTagIds]);
-
-  // Format date filter button text
-  const dateFilterButtonText = useMemo(() => {
-    if (dateFilterType === 'custom' && dateRange && dateRange[0] && dateRange[1]) {
-      // Ensure dates are Date objects
-      const startDate = dateRange[0] instanceof Date ? dateRange[0] : new Date(dateRange[0]);
-      const endDate = dateRange[1] instanceof Date ? dateRange[1] : new Date(dateRange[1]);
-      const sameYear = startDate.getFullYear() === endDate.getFullYear();
-      
-      const formatOptions = sameYear 
-        ? { month: 'short', day: 'numeric' }
-        : { month: 'short', day: 'numeric', year: 'numeric' };
-      
-      const startStr = startDate.toLocaleDateString('en-US', formatOptions);
-      const endStr = endDate.toLocaleDateString('en-US', formatOptions);
-      
-      return `${startStr} - ${endStr}`;
-    }
-    
-    switch (dateFilterType) {
-      case 'today':
-        return 'Today';
-      case 'yesterday':
-        return 'Yesterday';
-      case 'last7days':
-        return 'Last 7 days';
-      case 'lastMonth':
-        return 'Last Month';
-      case 'thisYear':
-        return 'This Year';
-      case 'lastYear':
-        return 'Last Year';
-      case 'allTime':
-        return 'All time';
-      case 'thisMonth':
-      default:
-        return 'This Month';
-    }
-  }, [dateFilterType, dateRange]);
-
-  // Date filter tooltip text
-  const dateFilterTooltip = useMemo(() => {
-    if (dateFilterType === 'thisMonth') {
-      return 'Click to select a custom date range';
-    }
-    if (dateFilterType === 'custom') {
-      return 'Custom date range selected';
-    }
-    return 'Custom date range selected';
-  }, [dateFilterType]);
 
   // Handle transaction type change and reset related fields
   const handleTransactionTypeChange = (newType) => {
@@ -1207,6 +949,10 @@ function Transactions() {
     setCustomTags([]);
     setDate(new Date());
     setMerchant('');
+    // Reset exchange rate state
+    setExchangeRateInfo(null);
+    setManualExchangeRate('');
+    setCheckingExchangeRate(false);
     setCounterparty('');
     setDescription('');
     setShowTagInput(false);
@@ -1214,17 +960,8 @@ function Transactions() {
     setIdempotencyKey(null);
   };
 
-  // Handle search collapse with animation
-  const handleCollapseSearch = () => {
-    setSearchCollapsing(true);
-    setTimeout(() => {
-      setSearchExpanded(false);
-      setSearchCollapsing(false);
-    }, 200); // Match animation duration
-  };
-
   // Handle clearing all filters (including date and excluding search)
-  const handleClearAllFilters = () => {
+  const handleClearAllFilters = useCallback(() => {
     // Set transitioning state to prevent empty state flash
     setIsTransitioning(true);
     
@@ -1236,19 +973,25 @@ function Transactions() {
     setFilterMaxAmount('');
     setFilterCounterparty('');
     setFilterIncludeFuture(false);
+    setFilterCurrencyType('all');
+    setFilterSelectedCurrency('all');
     
     // Clear date filter
     setDateFilterType('thisMonth');
     setDateRange(null);
-    setTempDateRange([null, null]);
     
     // Fallback: Clear transitioning state after a longer timeout in case data never arrives
     setTimeout(() => setIsTransitioning(false), 2000);
-  };
+  }, []);
 
   // Handle CSV download with all current filters
   const handleDownloadCSV = async () => {
+    if (isExporting || !canExportAgain) return;
+    
     try {
+      // Set exporting state
+      setIsExporting(true);
+      
       // Build query parameters from all filter states
       const params = new URLSearchParams();
       
@@ -1318,7 +1061,36 @@ function Transactions() {
       // Fetch CSV from backend
       const response = await authenticatedFetch(`/api/transactions/csv?${params.toString()}`);
       
+      // Handle errors
       if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        
+        if (response.status === 429) {
+          // Rate limit exceeded
+          notifications.show({
+            title: 'Too Many Exports',
+            message: errorData.error || "You're exporting too frequently. Please try again in a moment.",
+            color: 'red',
+            position: 'bottom-right',
+            autoClose: 5000
+          });
+          setIsExporting(false);
+          return;
+        }
+        
+        if (response.status === 400 && errorData.error?.includes('too large')) {
+          // Export too large
+          notifications.show({
+            title: 'Export Too Large',
+            message: errorData.error || "Your export is too large. Please narrow your date range.",
+            color: 'red',
+            position: 'bottom-right',
+            autoClose: 5000
+          });
+          setIsExporting(false);
+          return;
+        }
+        
         throw new Error('Failed to download CSV');
       }
       
@@ -1337,10 +1109,34 @@ function Transactions() {
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
       
+      // After download starts, disable for a few seconds with countdown
+      setCanExportAgain(false);
+      setCooldownSeconds(5);
+      
+      // Countdown timer
+      const countdownInterval = setInterval(() => {
+        setCooldownSeconds(prev => {
+          if (prev <= 1) {
+            clearInterval(countdownInterval);
+            setCanExportAgain(true);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      
       showSuccessNotification('CSV downloaded successfully');
     } catch (error) {
       console.error('Error downloading CSV:', error);
-      showErrorNotification('Failed to download CSV');
+      notifications.show({
+        title: 'Export Failed',
+        message: 'Failed to download transactions. Please try again.',
+        color: 'red',
+        position: 'bottom-right',
+        autoClose: 5000
+      });
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -1441,6 +1237,61 @@ function Transactions() {
     setDeleteModalOpened(true);
   }, []);
 
+  // Note: openDrawer and closeDrawer come from context and are already stable
+
+  const handleTransactionSubmit = () => {
+    // Format date to YYYY-MM-DD using local date (avoid timezone issues)
+    const dateObj = date instanceof Date ? date : new Date(date);
+    const year = dateObj.getFullYear();
+    const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const day = String(dateObj.getDate()).padStart(2, '0');
+    const formattedDate = `${year}-${month}-${day}`;
+    
+    // Prepare transaction data
+    const transactionData = {
+      amount: parseFloat(amount),
+      date: formattedDate,
+      description: description || null,
+      suggestedTags: selectedTags,
+      customTags: customTags
+    };
+
+    // Add manual exchange rate if provided
+    if (manualExchangeRate && parseFloat(manualExchangeRate) > 0) {
+      transactionData.manualExchangeRate = parseFloat(manualExchangeRate);
+    }
+
+    // Add type-specific fields
+    if (transactionType === 'transfer') {
+      transactionData.fromWalletId = fromWalletId;
+      transactionData.toWalletId = toWalletId;
+    } else {
+      transactionData.walletId = walletId;
+      transactionData.category = category;
+      
+      // Add merchant for expenses only
+      if (transactionType === 'expense' && merchant) {
+        transactionData.merchant = merchant;
+      }
+      
+      // Add counterparty for income only
+      if (transactionType === 'income' && counterparty) {
+        transactionData.counterparty = counterparty;
+      }
+    }
+
+    // Create or update transaction
+    if (editMode) {
+      updateTransactionMutation.mutate({
+        transactionId: editingTransaction.id,
+        transactionData
+      });
+    } else {
+      transactionData.transactionType = transactionType;
+      createTransactionMutation.mutate(transactionData);
+    }
+  };
+
   const handleAddTag = (value) => {
     if (!value || maxTagsReached) return;
 
@@ -1485,108 +1336,6 @@ function Transactions() {
     // 'today' uses current date
     
     setDate(newDate);
-  };
-
-  const handleApplyDateFilter = () => {
-    if (tempDateRange && tempDateRange[0] && tempDateRange[1]) {
-      // Ensure dates are Date objects
-      const normalizedRange = [
-        tempDateRange[0] instanceof Date ? tempDateRange[0] : new Date(tempDateRange[0]),
-        tempDateRange[1] instanceof Date ? tempDateRange[1] : new Date(tempDateRange[1])
-      ];
-      setDateFilterType('custom');
-      setDateRange(normalizedRange);
-    }
-    setDatePopoverOpened(false);
-  };
-
-  const handleClearDateFilter = () => {
-    setDateFilterType('thisMonth');
-    setDateRange(null);
-    setTempDateRange([null, null]);
-    setDatePopoverOpened(false);
-  };
-
-  const handleDateRangeChange = (range) => {
-    setTempDateRange(range);
-    
-    // Check if this matches a preset (both dates selected)
-    if (range && range[0] && range[1]) {
-      // Ensure dates are Date objects
-      const normalizedRange = [
-        range[0] instanceof Date ? range[0] : new Date(range[0]),
-        range[1] instanceof Date ? range[1] : new Date(range[1])
-      ];
-      
-      const today = dayjs().startOf('day');
-      const start = dayjs(normalizedRange[0]).startOf('day');
-      const end = dayjs(normalizedRange[1]).startOf('day');
-      
-      // Check if matches "Today"
-      if (start.isSame(today, 'day') && end.isSame(today, 'day')) {
-        setDateFilterType('today');
-        setDateRange(normalizedRange);
-        setDatePopoverOpened(false);
-        return;
-      }
-      
-      // Check if matches "Yesterday"
-      const yesterday = today.subtract(1, 'day');
-      if (start.isSame(yesterday, 'day') && end.isSame(yesterday, 'day')) {
-        setDateFilterType('yesterday');
-        setDateRange(normalizedRange);
-        setDatePopoverOpened(false);
-        return;
-      }
-      
-      // Check if matches "Last 7 days"
-      const weekAgo = today.subtract(6, 'days');
-      if (start.isSame(weekAgo, 'day') && end.isSame(today, 'day')) {
-        setDateFilterType('last7days');
-        setDateRange(normalizedRange);
-        setDatePopoverOpened(false);
-        return;
-      }
-      
-      // Check if matches "Last Month"
-      const firstDayLastMonth = today.subtract(1, 'month').startOf('month');
-      const lastDayLastMonth = today.subtract(1, 'month').endOf('month').startOf('day');
-      if (start.isSame(firstDayLastMonth, 'day') && end.isSame(lastDayLastMonth, 'day')) {
-        setDateFilterType('lastMonth');
-        setDateRange(normalizedRange);
-        setDatePopoverOpened(false);
-        return;
-      }
-      
-      // Check if matches "This Year"
-      const firstDayThisYear = today.startOf('year');
-      const lastDayThisYear = today.endOf('year').startOf('day');
-      if (start.isSame(firstDayThisYear, 'day') && end.isSame(lastDayThisYear, 'day')) {
-        setDateFilterType('thisYear');
-        setDateRange(normalizedRange);
-        setDatePopoverOpened(false);
-        return;
-      }
-      
-      // Check if matches "Last Year"
-      const firstDayLastYear = today.subtract(1, 'year').startOf('year');
-      const lastDayLastYear = today.subtract(1, 'year').endOf('year').startOf('day');
-      if (start.isSame(firstDayLastYear, 'day') && end.isSame(lastDayLastYear, 'day')) {
-        setDateFilterType('lastYear');
-        setDateRange(normalizedRange);
-        setDatePopoverOpened(false);
-        return;
-      }
-      
-      // Check if matches "All time"
-      const startOfTime = dayjs('2000-01-01');
-      if (start.isSame(startOfTime, 'day') && end.isSame(today, 'day')) {
-        setDateFilterType('allTime');
-        setDateRange(normalizedRange);
-        setDatePopoverOpened(false);
-        return;
-      }
-    }
   };
 
   // Check if there are any changes in edit mode
@@ -1759,11 +1508,132 @@ function Transactions() {
 
   // Get drawer title based on mode and transaction type
   const drawerTitle = useMemo(() => {
-    if (!editMode) return 'Add Transaction';
+    if (!editMode) return 'Add new transaction';
     if (transactionType === 'income') return 'Edit Income';
     if (transactionType === 'expense') return 'Edit Expense';
     return 'Edit Transfer';
   }, [editMode, transactionType]);
+
+  // Get all visible transaction IDs for bulk delete
+  const allVisibleTransactionIds = useMemo(() => {
+    return groupedTransactions.flatMap(group => 
+      group.transactions.map(t => t.id)
+    );
+  }, [groupedTransactions]);
+
+  // Check if all visible transactions are selected
+  const allSelected = isSelectingAll || (allVisibleTransactionIds.length > 0 && 
+    allVisibleTransactionIds.every(id => selectedTransactions.includes(id)));
+
+  // Handle select all / deselect all
+  const handleToggleSelectAll = async () => {
+    if (allSelected || isSelectingAll) {
+      // Deselect all
+      setSelectedTransactions([]);
+      setIsSelectingAll(false);
+    } else {
+      // Select all matching transactions (not just visible ones)
+      setIsSelectingAll(true);
+      try {
+        // Build the same query params used for fetching transactions
+        const params = new URLSearchParams();
+        
+        // Date filters
+        if (dateRange && dateRange[0] && dateRange[1]) {
+          params.append('start_date', dayjs(dateRange[0]).format('YYYY-MM-DD'));
+          params.append('end_date', dayjs(dateRange[1]).format('YYYY-MM-DD'));
+        } else if (dateFilterType === 'thisMonth') {
+          const now = dayjs();
+          params.append('start_date', now.startOf('month').format('YYYY-MM-DD'));
+          params.append('end_date', now.endOf('month').format('YYYY-MM-DD'));
+        } else if (dateFilterType === 'lastMonth') {
+          const lastMonth = dayjs().subtract(1, 'month');
+          params.append('start_date', lastMonth.startOf('month').format('YYYY-MM-DD'));
+          params.append('end_date', lastMonth.endOf('month').format('YYYY-MM-DD'));
+        } else if (dateFilterType === 'thisYear') {
+          const now = dayjs();
+          params.append('start_date', now.startOf('year').format('YYYY-MM-DD'));
+          params.append('end_date', now.endOf('year').format('YYYY-MM-DD'));
+        } else if (dateFilterType === 'lastYear') {
+          const lastYear = dayjs().subtract(1, 'year');
+          params.append('start_date', lastYear.startOf('year').format('YYYY-MM-DD'));
+          params.append('end_date', lastYear.endOf('year').format('YYYY-MM-DD'));
+        } else if (dateFilterType === 'allTime') {
+          params.append('start_date', '2000-01-01');
+          params.append('end_date', dayjs().format('YYYY-MM-DD'));
+        }
+        
+        // Transaction types
+        if (filterTransactionTypes.length > 0) {
+          params.append('type', filterTransactionTypes.join(','));
+        }
+        
+        // Wallet filter
+        if (filterWallets.length > 0) {
+          params.append('wallet_ids', filterWallets.join(','));
+        }
+        
+        // Category filter
+        if (filterCategories.length > 0) {
+          params.append('category_ids', filterCategories.join(','));
+        }
+        
+        // Tag filter
+        if (filterTags.length > 0) {
+          params.append('tag_ids', filterTags.join(','));
+        }
+        
+        // Counterparty filter
+        if (debouncedCounterparty) {
+          params.append('counterparty', debouncedCounterparty);
+        }
+        
+        // Amount filters
+        if (debouncedMinAmount) {
+          params.append('min_amount', debouncedMinAmount);
+        }
+        if (debouncedMaxAmount) {
+          params.append('max_amount', debouncedMaxAmount);
+        }
+        
+        // Search filter
+        if (appliedSearchQuery) {
+          params.append('search', appliedSearchQuery);
+        }
+        
+        // Future transactions filter
+        if (filterIncludeFuture) {
+          params.append('include_future', 'true');
+        }
+        
+        // Currency filter
+        if (filterCurrencyType === 'base') {
+          params.append('currency', walletsData?.baseCurrency || 'USD');
+        } else if (filterCurrencyType === 'others') {
+          if (filterSelectedCurrency && filterSelectedCurrency !== 'all') {
+            params.append('currency', filterSelectedCurrency);
+          } else {
+            params.append('exclude_base_currency', 'true');
+          }
+        }
+
+        console.log('Select All - Fetching IDs with params:', params.toString());
+        const response = await authenticatedFetch(`/api/transactions/ids?${params.toString()}`);
+        if (response.ok) {
+          const data = await response.json();
+          console.log(`Select All - Received ${data.count} transaction IDs`);
+          setSelectedTransactions(data.ids);
+        } else {
+          showErrorNotification('Failed to select all transactions');
+          setIsSelectingAll(false);
+        }
+      } catch (error) {
+        console.error('Error selecting all transactions:', error);
+        showErrorNotification('Failed to select all transactions');
+        setIsSelectingAll(false);
+      }
+    }
+  };
 
   // Get totals from API response (calculated for ALL matching transactions, not just paginated ones)
   const totals = useMemo(() => {
@@ -1788,16 +1658,18 @@ function Transactions() {
     };
   }, [transactionsData]);
 
+  // Stable base currency for TransactionFilters to prevent re-renders
+  const baseCurrency = useMemo(() => totals.currency, [totals.currency]);
+
   return (
     <AppLayout>
       <Stack style={{ position: 'relative', height: '100%' }}>
-        {/* Page Title and Add Transaction Button */}
-        <Group justify="space-between" align="flex-start">
-          <Title order={3}>Transactions</Title>
+        {/* Add Transaction Button */}
+        <Group justify="flex-end">
           <Button
             color="blue.9"
             radius="sm"
-            leftSection={<IconPlus size={18} />}
+            leftSection={<IconCash size={18} />}
             onMouseDown={createRipple}
             onClick={() => {
               setIdempotencyKey(uuidv4());
@@ -1805,1210 +1677,525 @@ function Transactions() {
             }}
             w={200}
           >
-            Add Transaction
+            Add new transaction
           </Button>
         </Group>
 
         {/* Summary Boxes */}
-        <Group gap="md" grow>
-          {/* Total Income */}
-          <Box style={{ 
-            background: 'white', 
-            borderRadius: '8px', 
-            padding: '16px', 
-            boxShadow: 'var(--mantine-shadow-sm)' 
-          }}>
-            <Text size="xs" fw={500} style={{ color: 'var(--gray-11)', marginBottom: '8px' }}>
-              TOTAL INCOME
-            </Text>
-            {(transactionsLoading || transactionsFetching || isTransitioning) && groupedTransactions.length === 0 ? (
-              <Skeleton height={32} width="30%" />
-            ) : (
-              <Text size="xl" fw={600} style={{ color: 'var(--green-9)' }}>
-                +{formatCurrency(totals.totalIncome, totals.currency)}
-              </Text>
-            )}
-          </Box>
-
-          {/* Total Expenses */}
-          <Box style={{ 
-            background: 'white', 
-            borderRadius: '8px', 
-            padding: '16px', 
-            boxShadow: 'var(--mantine-shadow-sm)' 
-          }}>
-            <Text size="xs" fw={500} style={{ color: 'var(--gray-11)', marginBottom: '8px' }}>
-              TOTAL EXPENSES
-            </Text>
-            {(transactionsLoading || transactionsFetching || isTransitioning) && groupedTransactions.length === 0 ? (
-              <Skeleton height={32} width="30%" />
-            ) : (
-              <Text size="xl" fw={600} style={{ color: 'var(--red-9)' }}>
-                -{formatCurrency(totals.totalExpense, totals.currency)}
-              </Text>
-            )}
-          </Box>
-
-          {/* Net Income */}
-          <Box style={{ 
-            background: 'white', 
-            borderRadius: '8px', 
-            padding: '16px', 
-            boxShadow: 'var(--mantine-shadow-sm)' 
-          }}>
-            <Text size="xs" fw={500} style={{ color: 'var(--gray-11)', marginBottom: '8px' }}>
-              NET INCOME
-            </Text>
-            {(transactionsLoading || transactionsFetching || isTransitioning) && groupedTransactions.length === 0 ? (
-              <Skeleton height={32} width="30%" />
-            ) : (
-              <Text size="xl" fw={600} style={{ color: totals.netIncome >= 0 ? 'var(--green-9)' : 'var(--red-9)' }}>
-                {totals.netIncome >= 0 ? '+' : ''}{formatCurrency(totals.netIncome, totals.currency)}
-              </Text>
-            )}
-          </Box>
-        </Group>
-
-        {/* Transactions List */}
-        {(() => {
-          const hasLoadedData = transactionsData?.pages?.length > 0;
-          const hasAnyTransactionsInData = transactionsData?.pages?.some(page => page?.transactions?.length > 0);
-          
-          // Show loading on initial load (before any data is loaded)
-          if (transactionsLoading && !hasLoadedData) {
-            return (
-              <Box style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
-                <Loader color="blue.9" size="lg" />
-              </Box>
-            );
-          }
-          
-          // If list is empty and we're fetching/transitioning, show loader
-          if (groupedTransactions.length === 0 && (transactionsFetching || isFetchingNextPage || isTransitioning)) {
-            return (
-              <Box style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '200px', padding: '40px 0' }}>
-                <Loader color="blue.9" size="md" />
-              </Box>
-            );
-          }
-          
-          // Show brand new user empty state ONLY if:
-          // - No transactions in the raw data at all
-          // - No filters are active
-          // - Not fetching
-          // - Not transitioning
-          if (!hasAnyTransactionsInData && !hasActiveFilters && hasLoadedData && !transactionsFetching && !isFetchingNextPage && !isTransitioning) {
-            return (
-              <Box style={{ textAlign: 'center', padding: '60px 20px' }}>
-                <Text size="lg" fw={500} style={{ color: 'var(--gray-11)' }}>
-                  No transactions found
-                </Text>
-                <Text size="sm" mt="xs" style={{ color: 'var(--gray-9)' }}>
-                  Create your first transaction to get started
-                </Text>
-              </Box>
-            );
-          }
-          
-          return (
-          <Box style={{ backgroundColor: 'white', borderRadius: '8px', width: '100%', boxShadow: 'var(--mantine-shadow-sm)', overflow: 'hidden' }}>
-            <Box p="md" style={{ borderBottom: '1px solid var(--gray-3)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-              {/* Download CSV Button */}
-              <Button 
-                variant="subtle" 
-                color="blue.9"
-                c="blue.9"
-                leftSection={<IconDownload size={18} />}
-                size="sm"
-                onClick={handleDownloadCSV}
-              >
-                Download CSV
-              </Button>
-
-              {/* Right side buttons */}
-              <Box style={{ display: 'flex', gap: '8px' }}>
-              {/* Expandable Search */}
-              {searchExpanded ? (
-                <Box
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    width: '300px',
-                    animation: searchCollapsing ? 'collapseSearch 200ms ease-out' : 'expandSearch 200ms ease-out',
-                    transformOrigin: 'right',
-                  }}
-                >
-                  <TextInput
-                    ref={searchInputRef}
-                    placeholder="Search transactions..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    onBlur={(e) => {
-                      // Don't collapse if clicking icons
-                      const relatedTarget = e.relatedTarget;
-                      if (relatedTarget?.hasAttribute('data-search-action')) {
-                        return;
-                      }
-                      if (!searchQuery.trim()) {
-                        handleCollapseSearch();
-                      }
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Escape') {
-                        setSearchQuery('');
-                        setAppliedSearchQuery('');
-                        handleCollapseSearch();
-                      } else if (e.key === 'Enter') {
-                        e.preventDefault();
-                        setAppliedSearchQuery(searchQuery);
-                      }
-                    }}
-                    size="sm"
-                    className="text-input"
-                    style={{ width: '100%' }}
-                    styles={{
-                      root: { width: '100%' },
-                    }}
-                    rightSection={
-                      <Group gap={4} wrap="nowrap" style={{ pointerEvents: 'all' }}>
-                        {searchQuery && (
-                          <IconX
-                            size={16}
-                            data-search-action
-                            style={{ cursor: 'pointer', color: 'var(--gray-9)' }}
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              setSearchQuery('');
-                              setAppliedSearchQuery('');
-                              searchInputRef.current?.focus();
-                            }}
-                          />
-                        )}
-                        <IconSearch
-                          size={16}
-                          data-search-action
-                          style={{ cursor: 'pointer', color: 'var(--blue-9)' }}
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            setAppliedSearchQuery(searchQuery);
-                            searchInputRef.current?.focus();
-                          }}
-                        />
-                      </Group>
-                    }
-                    rightSectionWidth={searchQuery ? 50 : 30}
-                  />
-                </Box>
-              ) : (
-                <Button 
-                  variant="subtle" 
-                  color="blue.9" 
-                  c="blue.9"
-                  leftSection={<IconSearch size={18} />}
-                  size="sm"
-                  onClick={() => {
-                    setSearchExpanded(true);
-                    setTimeout(() => searchInputRef.current?.focus(), 100);
-                  }}
-                >
-                  Search
-                </Button>
-              )}
-
-              <Popover 
-                opened={datePopoverOpened} 
-                onChange={setDatePopoverOpened}
-                position="bottom-end"
-                width={320}
-                shadow="md"
-                withArrow
-                closeOnClickOutside={true}
-                closeOnEscape={true}
-                clickOutsideEvents={['mousedown', 'touchstart']}
-              >
-                <Popover.Target>
-                  <Tooltip label={dateFilterTooltip} position="top">
-                    <Button 
-                      variant="subtle" 
-                      color="blue.9" 
-                      c="blue.9"
-                      leftSection={<IconCalendar size={18} />}
-                      size="sm"
-                      onClick={() => {
-                        const willOpen = !datePopoverOpened;
-                        if (willOpen && dateFilterType === 'custom' && dateRange) {
-                          setTempDateRange(dateRange);
-                        } else if (willOpen && dateFilterType !== 'custom') {
-                          setTempDateRange([null, null]);
-                        }
-                        setDatePopoverOpened(willOpen);
-                      }}
-                    >
-                      {dateFilterButtonText}
-                    </Button>
-                  </Tooltip>
-                </Popover.Target>
-                <Popover.Dropdown>
-                  <Stack gap="md">
-                    {/* Date range picker */}
-                    <DatePickerInput
-                      type="range"
-                      placeholder="Pick date range"
-                      value={tempDateRange}
-                      onChange={handleDateRangeChange}
-                      size="sm"
-                      className="text-input"
-                      defaultDate={new Date()}
-                      popoverProps={{ 
-                        withinPortal: false,
-                        closeOnClickOutside: false,
-                        clickOutsideEvents: []
-                      }}
-                      presets={[
-                        { value: [dayjs().toDate(), dayjs().toDate()], label: 'Today' },
-                        { value: [dayjs().subtract(1, 'day').toDate(), dayjs().subtract(1, 'day').toDate()], label: 'Yesterday' },
-                        { value: [dayjs().subtract(6, 'days').toDate(), dayjs().toDate()], label: 'Last 7 days' },
-                        { value: [dayjs().subtract(1, 'month').startOf('month').toDate(), dayjs().subtract(1, 'month').endOf('month').toDate()], label: 'Last Month' },
-                        { value: [dayjs().startOf('year').toDate(), dayjs().endOf('year').toDate()], label: 'This Year' },
-                        { value: [dayjs().subtract(1, 'year').startOf('year').toDate(), dayjs().subtract(1, 'year').endOf('year').toDate()], label: 'Last Year' },
-                        { value: [dayjs('2000-01-01').toDate(), dayjs().toDate()], label: 'All time' },
-                      ]}
-                    />
-
-                    {/* Action buttons */}
-                    <Group justify="space-between">
-                      <Button 
-                        variant="subtle" 
-                        size="xs" 
-                        onClick={handleClearDateFilter}
-                        c="blue.9"
-                      >
-                        Clear
-                      </Button>
-                      <Button 
-                        variant="filled" 
-                        size="xs" 
-                        color="blue.9"
-                        onClick={handleApplyDateFilter}
-                        disabled={!tempDateRange || !tempDateRange[0] || !tempDateRange[1]}
-                      >
-                        Apply
-                      </Button>
-                    </Group>
-                  </Stack>
-                </Popover.Dropdown>
-              </Popover>
-
-              <Button 
-                variant="subtle" 
-                color="blue.9"
-                c="blue.9"
-                leftSection={<IconFilter size={18} />}
-                size="sm"
-                onClick={() => setFiltersDrawerOpened(true)}
-              >
-                Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
-              </Button>
-              </Box>
-            </Box>
-            
-            <TransactionList
-              groupedTransactions={groupedTransactions}
-              transactionsLoading={false}
-              hasActiveFilters={hasActiveFilters}
-              isFetchingNextPage={isFetchingNextPage}
-              loadMoreRef={loadMoreRef}
-              onEdit={handleOpenEditDrawer}
-              onDelete={handleOpenDeleteModal}
-            />
-          </Box>
-          );
-        })()}
-
-        {/* Drawer */}
-        <Drawer
-          opened={drawerOpened}
-          onClose={handleCloseDrawer}
-          position="right"
-          title={drawerTitle}
-          size="md"
-          styles={{
-            title: { 
-              fontSize: '24px', 
-              fontWeight: 700 
-            }
+        <TransactionSummaryBoxes 
+          totals={{
+            income: totals.totalIncome,
+            expenses: totals.totalExpense,
+            net: totals.netIncome
           }}
-        >
-          <Stack gap="lg">
-            {!editMode && (
-              <div>
-                <Text size="xs" fw={500} mb={8}>
-                  Transaction Type
-                </Text>
-                <Chip.Group value={transactionType} onChange={handleTransactionTypeChange}>
-                  <Group gap="sm">
-                    <Chip value="income" size="sm" radius="md" color="blue.9">
-                      Income
-                    </Chip>
-                    <Chip value="expense" size="sm" radius="md" color="blue.9">
-                      Expense
-                    </Chip>
-                    <Tooltip
-                      label="You need at least two wallets to make a transfer"
-                      disabled={(walletsData?.wallets?.length || 0) >= 2}
-                    >
-                      <span>
-                        <Chip 
-                          value="transfer" 
-                          size="sm" 
-                          radius="md" 
-                          color="blue.9"
-                          disabled={(walletsData?.wallets?.length || 0) < 2}
-                          styles={(walletsData?.wallets?.length || 0) < 2 ? {
-                            label: { color: 'var(--gray-9) !important' }
-                          } : undefined}
-                        >
-                          Transfer
-                        </Chip>
-                      </span>
-                    </Tooltip>
-                  </Group>
-                </Chip.Group>
-              </div>
-            )}
-            
-            {/* Wallet dropdown - Only show for Income and Expense - MOVED BEFORE AMOUNT */}
-            {(transactionType === 'income' || transactionType === 'expense') && (
-              <>
-                <Select
-                  label="Wallet"
-                  placeholder="Select wallet"
-                  value={walletId}
-                  onChange={setWalletId}
-                  data={walletsData?.wallets?.map(wallet => ({
-                    value: wallet.id.toString(),
-                    label: wallet.name,
-                    wallet: wallet
-                  })) || []}
-                  size="md"
-                  className="text-input"
-                  searchable
-                  clearable
-                  disabled={walletsLoading}
-                  styles={{
-                    label: { fontSize: '12px', fontWeight: 500 }
-                  }}
-                  renderOption={({ option }) => {
-                    const wallet = option.wallet;
-                    if (!wallet) return option.label;
-                    
-                    return (
-                      <Group gap="xs" wrap="nowrap" justify="space-between" style={{ width: '100%' }}>
-                        <Group gap="xs" wrap="nowrap">
-                          <Text size="lg" style={{ flexShrink: 0 }}>
-                            {wallet.icon}
-                          </Text>
-                          <Text size="sm" style={{ flexShrink: 0 }}>
-                            {wallet.name}
-                          </Text>
-                          <Badge
-                            size="xs"
-                            color={wallet.include_in_balance ? "green" : "gray"}
-                            variant="light"
-                            style={{ flexShrink: 0 }}
-                            styles={{
-                              root: {
-                                color: wallet.include_in_balance ? 'var(--green-9)' : 'var(--gray-9)'
-                              }
-                            }}
-                          >
-                            {wallet.include_in_balance ? "Included" : "Excluded"}
-                          </Badge>
-                        </Group>
-                        <Text size="sm" fw={600} c="gray.11" style={{ flexShrink: 0 }}>
-                          {formatCurrency(wallet.current_balance, wallet.currency)}
-                        </Text>
-                      </Group>
-                    );
-                  }}
-                />
-              </>
-            )}
-            
-            <NumberInput
-              ref={amountInputRef}
-              label="Amount"
-              placeholder="0.00"
-              value={amount}
-              onChange={setAmount}
-              onBlur={() => {
-                // If there's an overflow warning, clamp to maxAllowed
-                if (amountOverflowWarning && amountOverflowWarning.maxAllowed) {
-                  setAmount(amountOverflowWarning.maxAllowed);
-                }
-              }}
-              decimalScale={2}
-              fixedDecimalScale
-              thousandSeparator=","
-              min={0}
-              max={maxAllowedAmount}
-              size="md"
-              className="text-input"
-              autoFocus
-              data-autofocus
-              styles={{
-                label: { fontSize: '12px', fontWeight: 500 }
-              }}
-            />
+          isLoading={(transactionsLoading || transactionsFetching || isTransitioning) && groupedTransactions.length === 0}
+          baseCurrency={totals.currency}
+        />
 
-            {/* Amount overflow warning - Only show when exceeded */}
-            {amountOverflowWarning && (
-              <Group gap="xs" wrap="nowrap" style={{ marginTop: '-8px', marginBottom: '8px' }}>
-                <IconAlertTriangle size={16} color="var(--red-9)" style={{ flexShrink: 0 }} />
-                <Text size="xs" c="red.9">
-                  Maximum allowed amount for this wallet: {formatCurrency(amountOverflowWarning.maxAllowed, amountOverflowWarning.currency)}
-                </Text>
-              </Group>
-            )}
+        {/* Filter Controls - Always rendered to prevent unmounting */}
+        <Box style={{ backgroundColor: 'white', borderRadius: '8px', width: '100%', boxShadow: 'var(--mantine-shadow-sm)', overflow: 'hidden' }}>
+          <Box p="xs" style={{ borderBottom: '1px solid var(--gray-3)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+            {/* Transaction Log Label */}
+            <Group gap="xs" ml="4px">
+              <IconActivity size={20} color="var(--blue-9)" />
+              <Text size="sm" fw={500} style={{ color: 'var(--gray-12)' }}>
+                Transaction Log
+              </Text>
+            </Group>
 
-            {/* Wallet balance warning for expenses - Only show if no overflow warning */}
-            {!amountOverflowWarning && walletBalanceWarning && (
-              <Group gap="xs" wrap="nowrap" style={{ marginTop: '-8px', marginBottom: '8px' }}>
-                <IconAlertTriangle size={16} color={walletBalanceWarning.walletType === 'cash' ? "var(--red-9)" : "var(--orange-8)"} style={{ flexShrink: 0 }} />
-                <Text size="xs" c={walletBalanceWarning.walletType === 'cash' ? "red.9" : "orange.7"}>
-                  Amount exceeds wallet balance by {formatCurrency(walletBalanceWarning.difference, walletBalanceWarning.currency)}
-                  {walletBalanceWarning.walletType === 'cash' && ' (Cash wallets cannot be overdrawn)'}
-                </Text>
-              </Group>
-            )}
-
-            {/* From wallet balance warning for transfers - Only show if no overflow warning */}
-            {!amountOverflowWarning && fromWalletBalanceWarning && (
-              <Group gap="xs" wrap="nowrap" style={{ marginTop: '-8px', marginBottom: '8px' }}>
-                <IconAlertTriangle size={16} color={fromWalletBalanceWarning.walletType === 'cash' ? "var(--red-9)" : "var(--orange-8)"} style={{ flexShrink: 0 }} />
-                <Text size="xs" c={fromWalletBalanceWarning.walletType === 'cash' ? "red.9" : "orange.7"}>
-                  Amount exceeds wallet balance by {formatCurrency(fromWalletBalanceWarning.difference, fromWalletBalanceWarning.currency)}
-                  {fromWalletBalanceWarning.walletType === 'cash' && ' (Cash wallets cannot be overdrawn)'}
-                </Text>
-              </Group>
-            )}
-
-            {/* From Wallet and To Wallet - Only show for Transfer */}
-            {transactionType === 'transfer' && (
-              <>
-                <Select
-                  label="From Wallet"
-                  placeholder="Select wallet"
-                  value={fromWalletId}
-                  onChange={handleFromWalletChange}
-                  data={walletsData?.wallets?.map(wallet => ({
-                    value: wallet.id.toString(),
-                    label: wallet.name,
-                    wallet: wallet
-                  })) || []}
-                  size="md"
-                  className="text-input"
-                  searchable
-                  clearable
-                  disabled={walletsLoading}
-                  styles={{
-                    label: { fontSize: '12px', fontWeight: 500 }
-                  }}
-                  renderOption={({ option }) => {
-                    const wallet = option.wallet;
-                    if (!wallet) return option.label;
-                    
-                    return (
-                      <Group gap="xs" wrap="nowrap" justify="space-between" style={{ width: '100%' }}>
-                        <Group gap="xs" wrap="nowrap">
-                          <Text size="lg" style={{ flexShrink: 0 }}>
-                            {wallet.icon}
-                          </Text>
-                          <Text size="sm" style={{ flexShrink: 0 }}>
-                            {wallet.name}
-                          </Text>
-                          <Badge
-                            size="xs"
-                            color={wallet.include_in_balance ? "green" : "gray"}
-                            variant="light"
-                            style={{ flexShrink: 0 }}
-                            styles={{
-                              root: {
-                                color: wallet.include_in_balance ? 'var(--green-9)' : 'var(--gray-9)'
-                              }
-                            }}
-                          >
-                            {wallet.include_in_balance ? "Included" : "Excluded"}
-                          </Badge>
-                        </Group>
-                        <Text size="sm" fw={600} c="gray.11" style={{ flexShrink: 0 }}>
-                          {formatCurrency(wallet.current_balance, wallet.currency)}
-                        </Text>
-                      </Group>
-                    );
-                  }}
-                />
-
-                <Select
-                  label="To Wallet"
-                  placeholder="Select wallet"
-                  value={toWalletId}
-                  onChange={setToWalletId}
-                  data={toWalletOptions}
-                  size="md"
-                  className="text-input"
-                  searchable
-                  clearable
-                  disabled={walletsLoading || !fromWalletId}
-                  styles={{
-                    label: { fontSize: '12px', fontWeight: 500 }
-                  }}
-                  renderOption={({ option }) => {
-                    const wallet = option.wallet;
-                    if (!wallet) return option.label;
-                    
-                    return (
-                      <Group gap="xs" wrap="nowrap" justify="space-between" style={{ width: '100%' }}>
-                        <Group gap="xs" wrap="nowrap">
-                          <Text size="lg" style={{ flexShrink: 0 }}>
-                            {wallet.icon}
-                          </Text>
-                          <Text size="sm" style={{ flexShrink: 0 }}>
-                            {wallet.name}
-                          </Text>
-                          <Badge
-                            size="xs"
-                            color={wallet.include_in_balance ? "green" : "gray"}
-                            variant="light"
-                            style={{ flexShrink: 0 }}
-                            styles={{
-                              root: {
-                                color: wallet.include_in_balance ? 'var(--green-9)' : 'var(--gray-9)'
-                              }
-                            }}
-                          >
-                            {wallet.include_in_balance ? "Included" : "Excluded"}
-                          </Badge>
-                        </Group>
-                        <Text size="sm" fw={600} c="gray.11" style={{ flexShrink: 0 }}>
-                          {formatCurrency(wallet.current_balance, wallet.currency)}
-                        </Text>
-                      </Group>
-                    );
-                  }}
-                />
-              </>
-            )}
-
-            {/* Category dropdown - Only show for Income and Expense */}
-            {(transactionType === 'income' || transactionType === 'expense') && (
-              <Select
-                label="Category"
-                placeholder={`Select ${transactionType} category`}
-                value={category}
-                onChange={handleCategoryChange}
-                data={filteredCategories.map(cat => ({
-                  value: cat.id.toString(),
-                  label: cat.name,
-                  category: cat // Pass full category object for custom rendering
-                }))}
-                size="md"
-                className="text-input"
-                searchable
-                clearable
-                disabled={referenceLoading}
-                styles={{
-                  label: { fontSize: '12px', fontWeight: 500 }
+            {/* Right side buttons */}
+            <Box style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <TransactionSearch 
+                initialValue={appliedSearchQuery}
+                onSearchApply={(query) => setAppliedSearchQuery(query)}
+                onSearchClear={() => {
+                  setAppliedSearchQuery('');
                 }}
-                renderOption={({ option }) => {
-                  const category = option.category;
-                  if (!category) return option.label;
+              />
+
+              <TransactionDateFilter 
+                dateFilterType={dateFilterType}
+                dateRange={dateRange}
+                onDateFilterChange={(type, range) => {
+                  setDateFilterType(type);
+                  setDateRange(range);
+                }}
+                onDateFilterClear={() => {
+                  setDateFilterType('thisMonth');
+                  setDateRange(null);
+                }}
+              />
+
+              <TransactionFilters 
+                open={isFiltersDrawerOpen}
+                onOpen={openDrawer}
+                onClose={closeDrawer}
+                filterTransactionTypes={filterTransactionTypes}
+                filterWallets={filterWallets}
+                filterCategories={filterCategories}
+                filterTags={filterTags}
+                filterMinAmount={filterMinAmount}
+                filterMaxAmount={filterMaxAmount}
+                filterCounterparty={filterCounterparty}
+                filterIncludeFuture={filterIncludeFuture}
+                filterCurrencyType={filterCurrencyType}
+                filterSelectedCurrency={filterSelectedCurrency}
+                onTransactionTypesChange={setFilterTransactionTypes}
+                onWalletsChange={setFilterWallets}
+                onCategoriesChange={setFilterCategories}
+                onTagsChange={setFilterTags}
+                onMinAmountChange={setFilterMinAmount}
+                onMaxAmountChange={setFilterMaxAmount}
+                onCounterpartyChange={setFilterCounterparty}
+                onIncludeFutureChange={setFilterIncludeFuture}
+                onCurrencyTypeChange={setFilterCurrencyType}
+                onSelectedCurrencyChange={setFilterSelectedCurrency}
+                onClearAllFilters={handleClearAllFilters}
+                walletsData={walletsData}
+                referenceData={referenceData}
+                baseCurrency={baseCurrency}
+              />
+
+              {/* Three Dot Menu */}
+              <Menu shadow="md" width={200} position="bottom-end">
+                <Menu.Target>
+                  <ActionIcon 
+                    variant="subtle"
+                    radius="sm"
+                    color="gray.11"
+                    size="lg"
+                    style={{
+                      color: 'var(--gray-12)'
+                    }}
+                  >
+                    <IconDotsVertical size={18} />
+                  </ActionIcon>
+                </Menu.Target>
+                <Menu.Dropdown>
+                  <Menu.Item
+                    leftSection={isExporting ? <Loader size={16} color="gray.6" /> : <IconDownload size={16} />}
+                    onClick={handleDownloadCSV}
+                    disabled={isExporting || !canExportAgain || groupedTransactions.length === 0}
+                  >
+                    {isExporting
+                      ? 'Preparing CSV...'
+                      : cooldownSeconds > 0
+                      ? `Download CSV (${cooldownSeconds})`
+                      : 'Download CSV'
+                    }
+                  </Menu.Item>
+                  <Menu.Item
+                    leftSection={<IconTrash size={16} />}
+                    color="red.9"
+                    c="red.9"
+                    disabled={groupedTransactions.length === 0}
+                    onClick={() => {
+                      setBulkDeleteMode(true);
+                      setSelectedTransactions([]);
+                    }}
+                  >
+                    Bulk Delete
+                  </Menu.Item>
+                </Menu.Dropdown>
+              </Menu>
+            </Box>
+          </Box>
+
+          {/* Bulk Delete Actions Bar */}
+          {bulkDeleteMode && (
+            <Box 
+              style={{ 
+                backgroundColor: 'var(--blue-1)', 
+                borderRadius: '8px', 
+                padding: '12px 16px',
+                border: '1px solid var(--blue-4)'
+              }}
+            >
+              <Group justify="space-between" align="center">
+                <Group gap="md">
+                  <Text size="sm" fw={500} style={{ color: 'var(--gray-12)' }}>
+                    {selectedTransactions.length} transaction{selectedTransactions.length !== 1 ? 's' : ''} selected
+                  </Text>
+                  {selectedTransactions.length > 0 && (
+                    <Button
+                      size="xs"
+                      variant="subtle"
+                      color="blue.9"
+                      c="blue.9"
+                      onClick={() => {
+                        setSelectedTransactions([]);
+                        setIsSelectingAll(false);
+                      }}
+                    >
+                      Clear selection
+                    </Button>
+                  )}
+                </Group>
+                <Group gap="xs">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    color="gray.9"
+                    c="gray.9"
+                    onClick={() => {
+                      setBulkDeleteMode(false);
+                      setSelectedTransactions([]);
+                      setIsSelectingAll(false);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    color="red.9"
+                    leftSection={<IconTrash size={16} />}
+                    disabled={selectedTransactions.length === 0}
+                    onClick={() => setBulkDeleteModalOpened(true)}
+                  >
+                    Delete Selected
+                  </Button>
+                </Group>
+              </Group>
+            </Box>
+          )}
+
+          {/* Table Headers */}
+          <Box 
+            style={{ 
+              backgroundColor: 'white', 
+              borderRadius: '8px', 
+              width: '100%', 
+              boxShadow: 'var(--mantine-shadow-sm)',
+              padding: '12px 16px'
+            }}
+          >
+            <Grid align="center" gutter="xs">
+              {/* Select All checkbox when bulk delete is active */}
+              {bulkDeleteMode && (
+                <Grid.Col span={0.15}>
+                  <Checkbox
+                    checked={allSelected}
+                    onChange={handleToggleSelectAll}
+                    size="xs"
+                    color="blue.9"
+                    indeterminate={selectedTransactions.length > 0 && !allSelected}
+                  />
+                </Grid.Col>
+              )}
+              
+              <Grid.Col span={bulkDeleteMode ? 2.95 : 3}>
+                <Text size="xs" fw={600} tt="uppercase" style={{ color: 'var(--gray-11)' }}>
+                  Counterparty
+                </Text>
+              </Grid.Col>
+              <Grid.Col span={bulkDeleteMode ? 2.95 : 3}>
+                <Text size="xs" fw={600} tt="uppercase" style={{ color: 'var(--gray-11)' }}>
+                  Category / Type
+                </Text>
+              </Grid.Col>
+              <Grid.Col span={bulkDeleteMode ? 2.95 : 3}>
+                <Text size="xs" fw={600} tt="uppercase" style={{ color: 'var(--gray-11)', marginLeft: '-8px' }}>
+                  Wallets
+                </Text>
+              </Grid.Col>
+              <Grid.Col span={3}>
+                <Group justify="flex-end" style={{ paddingRight: '32px' }}>
+                  <Text size="xs" fw={600} tt="uppercase" style={{ color: 'var(--gray-11)' }}>
+                    Amount
+                  </Text>
+                </Group>
+              </Grid.Col>
+            </Grid>
+          </Box>
+
+          {/* Transactions List - Conditional content inside stable container */}
+          {(() => {
+            const hasLoadedData = transactionsData?.pages?.length > 0;
+            const hasAnyTransactionsInData = transactionsData?.pages?.some(page => page?.transactions?.length > 0);
+            
+            // Show loading on initial load (before any data is loaded)
+            if (transactionsLoading && !hasLoadedData) {
+              return (
+                <Stack gap="md">
+                  {/* Skeleton date group header */}
+                  <Box 
+                    p="xs"
+                    style={{ 
+                      backgroundColor: 'var(--blue-3)',
+                      borderRadius: '4px'
+                    }}
+                  >
+                    <Skeleton height={20} width="25%" />
+                  </Box>
                   
-                  return (
-                    <Group gap="xs" wrap="nowrap">
-                      {/* Category icon */}
-                      <Text size="lg" style={{ flexShrink: 0 }}>
-                        {category.icon}
-                      </Text>
-                      
-                      {/* Category name */}
-                      <Text size="sm">
-                        {category.name}
-                      </Text>
-                    </Group>
+                  {/* Skeleton transaction items */}
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <Box
+                      key={i}
+                      p="md"
+                      style={{
+                        backgroundColor: 'white',
+                        borderRadius: '8px',
+                        border: '1px solid var(--gray-4)'
+                      }}
+                    >
+                      <Grid align="center" gutter="xs">
+                        <Grid.Col span={3}>
+                          <Skeleton height={16} width="80%" />
+                        </Grid.Col>
+                        <Grid.Col span={3}>
+                          <Skeleton height={16} width="60%" />
+                        </Grid.Col>
+                        <Grid.Col span={3}>
+                          <Skeleton height={16} width="70%" />
+                        </Grid.Col>
+                        <Grid.Col span={3}>
+                          <Group justify="flex-end" style={{ paddingRight: '16px' }}>
+                            <Skeleton height={16} width="80%" />
+                          </Group>
+                        </Grid.Col>
+                      </Grid>
+                    </Box>
+                  ))}
+                </Stack>
+              );
+            }
+            
+            // If list is empty and we're fetching/transitioning, show skeleton
+            if (groupedTransactions.length === 0 && (transactionsFetching || isFetchingNextPage || isTransitioning)) {
+              return (
+                <Stack gap="md">
+                  {/* Skeleton date group header */}
+                  <Box 
+                    p="xs"
+                    style={{ 
+                      backgroundColor: 'var(--blue-3)',
+                      borderRadius: '4px'
+                    }}
+                  >
+                    <Skeleton height={20} width="20%" />
+                  </Box>
+                  
+                  {/* Skeleton transaction items */}
+                  {[1, 2, 3].map((i) => (
+                    <Box
+                      key={i}
+                      p="md"
+                      style={{
+                        backgroundColor: 'white',
+                        borderRadius: '8px',
+                        border: '1px solid var(--gray-4)'
+                      }}
+                    >
+                      <Grid align="center" gutter="xs">
+                        <Grid.Col span={3}>
+                          <Skeleton height={16} width="75%" />
+                        </Grid.Col>
+                        <Grid.Col span={3}>
+                          <Skeleton height={16} width="55%" />
+                        </Grid.Col>
+                        <Grid.Col span={3}>
+                          <Skeleton height={16} width="65%" />
+                        </Grid.Col>
+                        <Grid.Col span={3}>
+                          <Group justify="flex-end" style={{ paddingRight: '16px' }}>
+                            <Skeleton height={16} width="70%" />
+                          </Group>
+                        </Grid.Col>
+                      </Grid>
+                    </Box>
+                  ))}
+                </Stack>
+              );
+            }
+            
+            // Show brand new user empty state ONLY if:
+            // - No transactions in the raw data at all
+            // - No filters are active
+            // - Not fetching
+            // - Not transitioning
+            if (!hasAnyTransactionsInData && !hasActiveFilters && hasLoadedData && !transactionsFetching && !isFetchingNextPage && !isTransitioning) {
+              return (
+                <Box style={{ textAlign: 'center', padding: '60px 20px' }}>
+                  <Text size="lg" fw={500} style={{ color: 'var(--gray-11)' }}>
+                    No transactions found
+                  </Text>
+                  <Text size="sm" mt="xs" style={{ color: 'var(--gray-9)' }}>
+                    Create your first transaction to get started
+                  </Text>
+                </Box>
+              );
+            }
+            
+            return (
+              <TransactionList
+                groupedTransactions={groupedTransactions}
+                transactionsLoading={false}
+                hasActiveFilters={hasActiveFilters}
+                isFetchingNextPage={isFetchingNextPage}
+                loadMoreRef={loadMoreRef}
+                onEdit={handleOpenEditDrawer}
+                onDelete={handleOpenDeleteModal}
+                baseCurrency={walletsData?.baseCurrency || 'USD'}
+                bulkDeleteMode={bulkDeleteMode}
+                selectedTransactions={selectedTransactions}
+                onToggleTransaction={(id) => {
+                  setSelectedTransactions(prev => 
+                    prev.includes(id) 
+                      ? prev.filter(tId => tId !== id)
+                      : [...prev, id]
                   );
                 }}
               />
-            )}
+            );
+          })()}
+        </Box>
 
-            {/* Tags section - Only show if category is selected */}
-            {category && (
-              <div>
-                <Text size="xs" fw={500} mb={8}>
-                  Tags:
-                </Text>
-                <Stack gap="xs">
-                  <Group gap="xs" align="flex-start">
-                    {/* Suggested tags */}
-                    {suggestedTags.length > 0 && (
-                      <Chip.Group 
-                        multiple 
-                        value={selectedTags} 
-                        onChange={(values) => {
-                          // Prevent selecting more than 5 tags total
-                          if (values.length + customTags.length <= 5) {
-                            setSelectedTags(values);
-                          }
-                        }}
-                      >
-                        <Group gap="xs">
-                          {suggestedTags.map(tag => {
-                            const isDisabled = !selectedTags.includes(tag.id) && maxTagsReached;
-                            return (
-                              <Chip
-                                key={tag.id}
-                                value={tag.id}
-                                size="sm"
-                                variant={selectedTags.includes(tag.id) ? 'filled' : 'outline'}
-                                color="blue.9"
-                                disabled={isDisabled}
-                                styles={isDisabled ? {
-                                  label: { color: 'var(--gray-9) !important' }
-                                } : undefined}
-                              >
-                                {tag.name}
-                              </Chip>
-                            );
-                          })}
-                        </Group>
-                      </Chip.Group>
-                    )}
-
-                    {/* Custom tags (manually added) - using Chip instead of Badge */}
-                    {customTags.map(tag => (
-                      <Chip
-                        key={tag.id}
-                        checked={true}
-                        size="sm"
-                        variant="filled"
-                        color="blue.9"
-                        onChange={() => handleRemoveCustomTag(tag.id)}
-                      >
-                        {tag.name}
-                      </Chip>
-                    ))}
-
-                    {/* Add tag input or button */}
-                    {!maxTagsReached && (
-                      <>
-                        {!showTagInput ? (
-                          <Badge
-                            size="lg"
-                            variant="filled"
-                            color="blue.9"
-                            onClick={() => setShowTagInput(true)}
-                            style={{ cursor: 'pointer', paddingLeft: '12px', paddingRight: '12px' }}
-                          >
-                            + Add tag
-                          </Badge>
-                        ) : (
-                          <Select
-                            placeholder="Search or create tag..."
-                            data={[
-                              ...availableTagsForSearch,
-                              ...(tagSearchValue && !availableTagsForSearch.some(t => t.label.toLowerCase() === tagSearchValue.toLowerCase())
-                                ? [{ value: `create:${tagSearchValue}`, label: `Create tag: ${tagSearchValue}` }]
-                                : [])
-                            ]}
-                            value={null}
-                            onChange={handleAddTag}
-                            searchable
-                            searchValue={tagSearchValue}
-                            onSearchChange={setTagSearchValue}
-                            size="sm"
-                            style={{ minWidth: '200px' }}
-                            onBlur={() => {
-                              if (!tagSearchValue) {
-                                setShowTagInput(false);
-                              }
-                            }}
-                            autoFocus
-                            data-autofocus
-                            nothingFoundMessage="Type to create new tag"
-                          />
-                        )}
-                      </>
-                    )}
-                  </Group>
-                  
-                  <Text size="xs" c="gray.11">
-                    You can add up to 5 tags
-                  </Text>
-                </Stack>
-              </div>
-            )}
-
-            <div>
-              <Text size="xs" fw={500} mb={8}>
-                Date
-              </Text>
-              <Chip.Group value={quickDateSelection} onChange={handleQuickDateSelect}>
-                <Group gap="sm" mb="sm">
-                  <Chip value="today" size="sm" radius="md" color="blue.9">
-                    Today
-                  </Chip>
-                  <Chip value="yesterday" size="sm" radius="md" color="blue.9">
-                    Yesterday
-                  </Chip>
-                  <Chip value="2days" size="sm" radius="md" color="blue.9">
-                    2 days ago
-                  </Chip>
-                </Group>
-              </Chip.Group>
-              
-              <DateInput
-                placeholder="Select date"
-                value={date}
-                onChange={(value) => setDate(value || new Date())}
-                size="md"
-                className="text-input date-input-with-icon"
-                valueFormat="DD/MM/YYYY"
-                leftSection={<IconCalendar size={16} style={{ color: 'var(--gray-12)' }} />}
-                clearable
-              />
-              
-              {isFutureDate && (
-                <Text size="xs" c="gray.11" mt={4}>
-                  This transaction will appear on its selected date.
-                </Text>
-              )}
-            </div>
-
-            {/* Merchant input - Only show for Expense */}
-            {transactionType === 'expense' && (
-              <Box>
-                <TextInput
-                  label={
-                    <Group gap={8} wrap="nowrap">
-                      <Text size="xs" fw={500}>Merchant (optional)</Text>
-                      <Badge size="xs" color="blue.9" c="blue.9" variant="light">Recommended</Badge>
-                    </Group>
-                  }
-                  placeholder="Where did you spend?"
-                  value={merchant}
-                  onChange={(e) => setMerchant(e.target.value)}
-                  size="md"
-                  className="text-input"
-                  maxLength={80}
-                />
-                <Text size="xs" c="gray.11" ta="right" mt={4}>
-                  {merchant.length}/80
-                </Text>
-              </Box>
-            )}
-
-            {transactionType === 'income' && (
-              <Box>
-                <TextInput
-                  label="Source (optional)"
-                  placeholder="Who paid you?"
-                  value={counterparty}
-                  onChange={(e) => setCounterparty(e.target.value)}
-                  size="md"
-                  className="text-input"
-                  maxLength={80}
-                  styles={{
-                    label: { fontSize: '12px', fontWeight: 500 }
-                  }}
-                />
-                <Text size="xs" c="gray.11" ta="right" mt={4}>
-                  {counterparty.length}/80
-                </Text>
-              </Box>
-            )}
-
-            <Box>
-              <TextInput
-                label="Description (optional)"
-                placeholder="Add a note about this transaction..."
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                size="md"
-                className="text-input"
-                maxLength={200}
-                styles={{
-                  label: { fontSize: '12px', fontWeight: 500 }
-                }}
-              />
-              <Text size="xs" c="gray.11" ta="right" mt={4}>
-                {description.length}/200
-              </Text>
-            </Box>
-
-            <Button
-              color="blue.9"
-              size="md"
-              fullWidth
-              onMouseDown={createRipple}
-              loading={createTransactionMutation.isPending || updateTransactionMutation.isPending}
-              disabled={
-                !amount || 
-                !date || 
-                isOverdraftBlocked ||
-                (transactionType === 'transfer' && (!fromWalletId || !toWalletId)) ||
-                (transactionType !== 'transfer' && !category) || 
-                (transactionType !== 'transfer' && !walletId) ||
-                (editMode && !hasChanges)
+        {/* Drawer */}
+        <TransactionDrawer 
+          opened={drawerOpened}
+          onClose={handleCloseDrawer}
+          editMode={editMode}
+          drawerTitle={drawerTitle}
+          transactionType={transactionType}
+          amount={amount}
+          category={category}
+          walletId={walletId}
+          fromWalletId={fromWalletId}
+          toWalletId={toWalletId}
+          date={date}
+          merchant={merchant}
+          counterparty={counterparty}
+          description={description}
+          selectedTags={selectedTags}
+          customTags={customTags}
+          onTransactionTypeChange={handleTransactionTypeChange}
+          onAmountChange={setAmount}
+          onAmountBlur={(e) => {
+            // Get the raw string value from the input to avoid floating point precision loss
+            const rawValue = e?.target?.value?.replace(/,/g, '').replace(/[^\d.]/g, '');
+            
+            // Only auto-correct if the raw value truly exceeds the limit
+            if (amountOverflowWarning && amountOverflowWarning.maxAllowedString && rawValue) {
+              // Get the wallet currency for validation
+              let walletCurrency = walletsData?.baseCurrency || 'USD';
+              if (transactionType === 'income' || transactionType === 'expense') {
+                const selectedWallet = walletsData?.wallets?.find(w => w.id.toString() === walletId);
+                if (selectedWallet) walletCurrency = selectedWallet.currency;
+              } else if (transactionType === 'transfer' && fromWalletId) {
+                const fromWallet = walletsData?.wallets?.find(w => w.id.toString() === fromWalletId);
+                if (fromWallet) walletCurrency = fromWallet.currency;
               }
-              onClick={() => {
-                // Format date to YYYY-MM-DD using local date (avoid timezone issues)
-                const dateObj = date instanceof Date ? date : new Date(date);
-                const year = dateObj.getFullYear();
-                const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-                const day = String(dateObj.getDate()).padStart(2, '0');
-                const formattedDate = `${year}-${month}-${day}`;
-                
-                // Prepare transaction data
-                const transactionData = {
-                  amount: parseFloat(amount),
-                  date: formattedDate,
-                  description: description || null,
-                  suggestedTags: selectedTags,
-                  customTags: customTags
-                };
-
-                // Add type-specific fields
-                if (transactionType === 'transfer') {
-                  transactionData.fromWalletId = fromWalletId;
-                  transactionData.toWalletId = toWalletId;
-                } else {
-                  transactionData.walletId = walletId;
-                  transactionData.category = category;
-                  
-                  // Add merchant for expenses only
-                  if (transactionType === 'expense' && merchant) {
-                    transactionData.merchant = merchant;
-                  }
-                  
-                  // Add counterparty for income only
-                  if (transactionType === 'income' && counterparty) {
-                    transactionData.counterparty = counterparty;
-                  }
-                }
-
-                // Create or update transaction
-                if (editMode) {
-                  updateTransactionMutation.mutate({
-                    transactionId: editingTransaction.id,
-                    transactionData
-                  });
-                } else {
-                  transactionData.transactionType = transactionType;
-                  createTransactionMutation.mutate(transactionData);
-                }
-              }}
-            >
-              {editMode ? 'Update Transaction' : 'Add Transaction'}
-            </Button>
-          </Stack>
-        </Drawer>
-
-        {/* Filters Drawer */}
-        <Drawer
-          opened={filtersDrawerOpened}
-          onClose={() => setFiltersDrawerOpened(false)}
-          position="right"
-          title="Filter your transactions"
-          size="md"
-        >
-          <Stack gap="lg">
-            {/* Transaction Type Filter */}
-            <div>
-              <Text size="sm" fw={500} mb="xs" style={{ color: 'var(--gray-12)' }}>
-                Transaction Type
-              </Text>
-              <Chip.Group multiple value={filterTransactionTypes} onChange={setFilterTransactionTypes}>
-                <Group gap="xs">
-                  <Chip value="income" color="blue.9">Income</Chip>
-                  <Chip value="expense" color="blue.9">Expense</Chip>
-                  <Chip 
-                    value="transfer" 
-                    color="blue.9"
-                    disabled={filterCategories.length > 0}
-                  >
-                    Transfer
-                  </Chip>
-                </Group>
-              </Chip.Group>
-              <Text size="xs" c="gray.9" mt={4}>
-                Leave unselected to show all types
-              </Text>
-            </div>
-
-            {/* Wallets Filter */}
-            <div>
-              <Text size="sm" fw={500} mb="xs" style={{ color: 'var(--gray-12)' }}>
-                Wallets
-              </Text>
-              <MultiSelect
-                placeholder="Select wallets"
-                data={walletsData?.wallets?.map(wallet => ({
-                  value: wallet.id.toString(),
-                  label: `${wallet.icon} ${wallet.name} - ${formatCurrency(wallet.current_balance, wallet.currency)}`
-                })) || []}
-                value={filterWallets}
-                onChange={setFilterWallets}
-                searchable
-                clearable
-                className="text-input"
-                size="sm"
-              />
-              <Text size="xs" c="gray.9" mt={4}>
-                Show transactions from any of the selected wallets
-              </Text>
-            </div>
-
-            {/* Categories Filter */}
-            <div>
-              <Text size="sm" fw={500} mb="xs" style={{ color: 'var(--gray-12)' }}>
-                Categories
-              </Text>
-              <MultiSelect
-                placeholder="Select categories"
-                data={referenceData?.categories?.map(cat => ({
-                  value: cat.id,
-                  label: `${cat.icon} ${cat.name}`
-                })) || []}
-                value={filterCategories}
-                onChange={(value) => {
-                  setFilterCategories(value);
-                  // If category selected, remove transfer from transaction types
-                  if (value.length > 0 && filterTransactionTypes.includes('transfer')) {
-                    setFilterTransactionTypes(filterTransactionTypes.filter(t => t !== 'transfer'));
-                  }
-                }}
-                searchable
-                clearable
-                className="text-input"
-                size="sm"
-                disabled={filterTransactionTypes.includes('transfer')}
-              />
-              <Text size="xs" c="gray.9" mt={4}>
-                Show transactions from any of the selected categories
-              </Text>
-            </div>
-
-            {/* Tags Filter */}
-            <div>
-              <Text size="sm" fw={500} mb="xs" style={{ color: 'var(--gray-12)' }}>
-                Tags
-              </Text>
-              <Select
-                placeholder="Search and select tags"
-                data={referenceData?.tags?.map(tag => ({
-                  value: tag.id,
-                  label: tag.name
-                })) || []}
-                value={null}
-                onChange={(value) => {
-                  if (value && !filterTags.includes(value)) {
-                    setFilterTags([...filterTags, value]);
-                  }
-                }}
-                searchable
-                clearable
-                className="text-input"
-                size="sm"
-              />
-              {filterTags.length > 0 && (
-                <Group gap="xs" mt="xs">
-                  {filterTags.map(tagId => {
-                    const tag = referenceData?.tags?.find(t => t.id === tagId);
-                    return (
-                      <Badge
-                        key={tagId}
-                        size="sm"
-                        color="blue.9"
-                        style={{ cursor: 'pointer' }}
-                        onClick={() => setFilterTags(filterTags.filter(t => t !== tagId))}
-                      >
-                        {tag?.name} ×
-                      </Badge>
-                    );
-                  })}
-                </Group>
-              )}
-              <Text size="xs" c="gray.9" mt={4}>
-                Transactions must have ALL selected tags
-              </Text>
-            </div>
-
-            {/* Amount Range Filter */}
-            <div>
-              <Text size="sm" fw={500} mb="xs" style={{ color: 'var(--gray-12)' }}>
-                Amount Range
-              </Text>
-              {(() => {
-                const hasAmountRangeError = filterMinAmount !== '' && filterMaxAmount !== '' && parseFloat(filterMinAmount) > parseFloat(filterMaxAmount);
-                return (
-                  <>
-                    <Group gap="xs" grow>
-                      <NumberInput
-                        placeholder="Min"
-                        value={filterMinAmount}
-                        onChange={(value) => setFilterMinAmount(value === null ? '' : value)}
-                        min={0}
-                        decimalScale={2}
-                        className="text-input"
-                        size="sm"
-                        prefix="€ "
-                        error={false}
-                        styles={hasAmountRangeError ? {
-                          input: { 
-                            borderColor: 'var(--red-9) !important',
-                            color: 'var(--gray-12)'
-                          }
-                        } : undefined}
-                      />
-                      <NumberInput
-                        placeholder="Max"
-                        value={filterMaxAmount}
-                        onChange={(value) => setFilterMaxAmount(value === null ? '' : value)}
-                        min={0}
-                        decimalScale={2}
-                        className="text-input"
-                        size="sm"
-                        prefix="€ "
-                        error={false}
-                        styles={hasAmountRangeError ? {
-                          input: { 
-                            borderColor: 'var(--red-9) !important',
-                            color: 'var(--gray-12)'
-                          }
-                        } : undefined}
-                      />
-                    </Group>
-                    {hasAmountRangeError && (
-                      <Text size="xs" c="red.9" mt={4}>
-                        Minimum amount cannot be greater than maximum
-                      </Text>
-                    )}
-                  </>
-                );
-              })()}
-            </div>
-
-            {/* Counterparty/Merchant Search */}
-            <div>
-              <Text size="sm" fw={500} mb="xs" style={{ color: 'var(--gray-12)' }}>
-                Merchant / Source
-              </Text>
-              <TextInput
-                placeholder="Search by merchant or source"
-                value={filterCounterparty}
-                onChange={(e) => setFilterCounterparty(e.target.value)}
-                className="text-input"
-                size="sm"
-              />
-              <Text size="xs" c="gray.9" mt={4}>
-                Search in merchant and counterparty fields
-              </Text>
-            </div>
-
-            {/* Include Future Transactions */}
-            <div>
-              <Checkbox
-                label="Include future transactions"
-                checked={filterIncludeFuture}
-                onChange={(e) => setFilterIncludeFuture(e.currentTarget.checked)}
-                size="sm"
-                color="blue.9"
-              />
-              <Text size="xs" c="gray.9" mt={4} ml={28}>
-                Show transactions with dates in the future
-              </Text>
-            </div>
-
-            {/* Clear All Filters Button */}
-            <Button
-              variant="subtle"
-              color="blue.9"
-              c="blue.9"
-              fullWidth
-              onClick={handleClearAllFilters}
-            >
-              Clear All Filters
-            </Button>
-          </Stack>
-        </Drawer>
+              
+              // Check if raw value exceeds the max
+              if (exceedsMaxAmount(rawValue, walletCurrency)) {
+                setAmount(amountOverflowWarning.maxAllowedString);
+              }
+            }
+          }}
+          onCategoryChange={handleCategoryChange}
+          onWalletIdChange={setWalletId}
+          onFromWalletIdChange={handleFromWalletChange}
+          onToWalletIdChange={setToWalletId}
+          onDateChange={setDate}
+          onMerchantChange={setMerchant}
+          onCounterpartyChange={setCounterparty}
+          onDescriptionChange={setDescription}
+          onSelectedTagsChange={setSelectedTags}
+          showTagInput={showTagInput}
+          setShowTagInput={setShowTagInput}
+          tagSearchValue={tagSearchValue}
+          setTagSearchValue={setTagSearchValue}
+          maxTagsReached={maxTagsReached}
+          onAddTag={handleAddTag}
+          onRemoveCustomTag={handleRemoveCustomTag}
+          quickDateSelection={quickDateSelection}
+          onQuickDateSelect={handleQuickDateSelect}
+          isFutureDate={isFutureDate}
+          walletsData={walletsData}
+          walletsLoading={walletsLoading}
+          referenceData={referenceData}
+          referenceLoading={referenceLoading}
+          filteredCategories={filteredCategories}
+          suggestedTags={suggestedTags}
+          availableTagsForSearch={availableTagsForSearch}
+          toWalletOptions={toWalletOptions}
+          amountOverflowWarning={amountOverflowWarning}
+          walletBalanceWarning={walletBalanceWarning}
+          fromWalletBalanceWarning={fromWalletBalanceWarning}
+          maxAllowedAmount={maxAllowedAmount}
+          isOverdraftBlocked={isOverdraftBlocked}
+          hasChanges={hasChanges}
+          isSubmitting={createTransactionMutation.isPending || updateTransactionMutation.isPending}
+          onSubmit={handleTransactionSubmit}
+          amountInputRef={amountInputRef}
+          createRipple={createRipple}
+          exchangeRateInfo={exchangeRateInfo}
+          checkingExchangeRate={checkingExchangeRate}
+          manualExchangeRate={manualExchangeRate}
+          onManualExchangeRateChange={setManualExchangeRate}
+          baseCurrency={walletsData?.baseCurrency || 'USD'}
+        />
 
         {/* Delete Confirmation Modal */}
-        <Modal
+        <DeleteConfirmationModal
           opened={deleteModalOpened}
           onClose={() => {
             setDeleteModalOpened(false);
             setTransactionToDelete(null);
           }}
-          title="Delete Transaction?"
+          transaction={transactionToDelete}
+          onConfirm={() => {
+            if (transactionToDelete) {
+              deleteTransactionMutation.mutate(transactionToDelete.id);
+            }
+          }}
+          isDeleting={deleteTransactionMutation.isPending}
+        />
+
+        {/* Bulk Delete Confirmation Modal */}
+        <Modal
+          opened={bulkDeleteModalOpened}
+          onClose={() => setBulkDeleteModalOpened(false)}
+          title="Delete Transactions?"
           centered
           size="sm"
         >
-          <Stack gap="md">
-            {transactionToDelete && (
+          <Box style={{ position: 'relative' }}>
+            <LoadingOverlay 
+              visible={bulkDeleteMutation.isPending} 
+              zIndex={1000} 
+              overlayProps={{ radius: "sm", blur: 2 }}
+            />
+            <Stack gap="md">
               <Box>
                 <Text size="sm" fw={500} style={{ color: 'var(--gray-12)' }}>
-                  {transactionToDelete.type === 'transfer' ? (
-                    <>Transfer - {formatCurrency(Math.abs(transactionToDelete.amount), transactionToDelete.currency)}</>
-                  ) : (
-                    <>{transactionToDelete.category_icon} {transactionToDelete.category_name} - {
-                      transactionToDelete.type === 'income' 
-                        ? `+${formatCurrency(transactionToDelete.amount, transactionToDelete.currency)}`
-                        : formatCurrency(Math.abs(transactionToDelete.amount), transactionToDelete.currency)
-                    }</>
-                  )}
-                </Text>
-                <Text size="xs" style={{ color: 'var(--gray-11)' }} mt={4}>
-                  {new Date(transactionToDelete.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {
-                    transactionToDelete.type === 'transfer'
-                      ? `${transactionToDelete.wallet_name}, ${transactionToDelete.to_wallet_name}`
-                      : transactionToDelete.wallet_name
-                  }
+                  {selectedTransactions.length} {selectedTransactions.length === 1 ? 'transaction' : 'transactions'} selected
                 </Text>
               </Box>
-            )}
-            
-            <Text size="sm" style={{ color: 'var(--gray-11)' }}>
-              {transactionToDelete?.type === 'transfer' 
-                ? 'This will permanently remove this transfer and update both wallet balances.'
-                : 'This will permanently remove this transaction and update your balances and reports.'
-              }
-            </Text>
-            
-            <Group justify="flex-end" gap="xs">
-              <Button
-                variant="subtle"
-                color="gray"
-                c="gray.9"
-                onClick={() => {
-                  setDeleteModalOpened(false);
-                  setTransactionToDelete(null);
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
-                color="red.9"
-                loading={deleteTransactionMutation.isPending}
-                onClick={() => {
-                  if (transactionToDelete) {
-                    deleteTransactionMutation.mutate(transactionToDelete.id);
-                  }
-                }}
-              >
-                Delete
-              </Button>
-            </Group>
-          </Stack>
+
+              <Text size="sm" c="gray.11">
+                This will permanently remove {selectedTransactions.length === 1 ? 'this transaction' : 'these transactions'} and update your balances and reports.
+              </Text>
+
+              <Group justify="flex-end" gap="sm">
+                <Button 
+                  variant="subtle" 
+                  color="gray.9"
+                  c="gray.9"
+                  onClick={() => setBulkDeleteModalOpened(false)}
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  color="red.9"
+                  onClick={() => bulkDeleteMutation.mutate(selectedTransactions)}
+                >
+                  Delete
+                </Button>
+              </Group>
+            </Stack>
+          </Box>
         </Modal>
       </Stack>
     </AppLayout>

@@ -129,6 +129,55 @@ router.post("/complete", authenticateToken, async (req, res) => {
         RETURNING *
       `;
 
+      // If starting balance is not zero, create an initial balance system transaction
+      if (startingBalance !== 0) {
+        
+        // Get the Initial Balance category
+        const [initialBalanceCategory] = await sql`
+          SELECT id FROM categories 
+          WHERE name = 'Initial Balance' AND is_system = true
+          LIMIT 1
+        `;
+
+        if (!initialBalanceCategory) {
+          throw new Error('Initial Balance category not found. Please run migrations.');
+        }
+
+        // Create initial balance transaction
+        await sql`
+          INSERT INTO transactions (
+            user_id,
+            wallet_id,
+            type,
+            amount,
+            currency,
+            description,
+            category_id,
+            date,
+            is_system,
+            system_type,
+            status,
+            base_currency_amount
+          )
+          VALUES (
+            ${userId},
+            ${createdWallet.id},
+            'income',
+            ${startingBalance},
+            ${walletCurrency.toUpperCase()},
+            'Initial Balance',
+            ${initialBalanceCategory.id},
+            CURRENT_DATE,
+            true,
+            'initial_balance',
+            'actual',
+            ${startingBalance}
+          )
+        `;
+        
+        console.log(`[Onboarding] Created initial balance transaction for wallet ${createdWallet.id}`);
+      }
+
       return createdWallet;
     });
 

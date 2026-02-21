@@ -14,6 +14,17 @@ export const ALL_CURRENCIES = [
   { code: 'NIO', name: 'Nicaraguan Córdoba', symbol: 'C$', countryCode: 'NI', continent: 'North America' },
   { code: 'PAB', name: 'Panamanian Balboa', symbol: 'B/.', countryCode: 'PA', continent: 'North America' },
   { code: 'TTD', name: 'Trinidad and Tobago Dollar', symbol: 'TT$', countryCode: 'TT', continent: 'North America' },
+  { code: 'ANG', name: 'Netherlands Antillean Guilder', symbol: 'ƒ', countryCode: 'CW', continent: 'North America' },
+  { code: 'AWG', name: 'Aruban Florin', symbol: 'ƒ', countryCode: 'AW', continent: 'North America' },
+  { code: 'BBD', name: 'Barbadian Dollar', symbol: '$', countryCode: 'BB', continent: 'North America' },
+  { code: 'BMD', name: 'Bermudan Dollar', symbol: '$', countryCode: 'BM', continent: 'North America' },
+  { code: 'BSD', name: 'Bahamian Dollar', symbol: '$', countryCode: 'BS', continent: 'North America' },
+  { code: 'CUC', name: 'Cuban Convertible Peso', symbol: '$', countryCode: 'CU', continent: 'North America' },
+  { code: 'CUP', name: 'Cuban Peso', symbol: '$', countryCode: 'CU', continent: 'North America' },
+  { code: 'HTG', name: 'Haitian Gourde', symbol: 'G', countryCode: 'HT', continent: 'North America' },
+  { code: 'KYD', name: 'Cayman Islands Dollar', symbol: '$', countryCode: 'KY', continent: 'North America' },
+  { code: 'SVC', name: 'Salvadoran Colón', symbol: '$', countryCode: 'SV', continent: 'North America' },
+  { code: 'XCD', name: 'East Caribbean Dollar', symbol: '$', countryCode: 'AG', continent: 'North America' },
   
   // Europe
   { code: 'EUR', name: 'Euro', symbol: '€', countryCode: 'EU', continent: 'Europe' },
@@ -41,10 +52,16 @@ export const ALL_CURRENCIES = [
   { code: 'MDL', name: 'Moldovan Leu', symbol: 'lei', countryCode: 'MD', continent: 'Europe' },
   { code: 'MKD', name: 'Macedonian Denar', symbol: 'ден', countryCode: 'MK', continent: 'Europe' },
   { code: 'RSD', name: 'Serbian Dinar', symbol: 'дин.', countryCode: 'RS', continent: 'Europe' },
+  { code: 'FKP', name: 'Falkland Islands Pound', symbol: '£', countryCode: 'FK', continent: 'Europe' },
+  { code: 'GGP', name: 'Guernsey Pound', symbol: '£', countryCode: 'GG', continent: 'Europe' },
+  { code: 'GIP', name: 'Gibraltar Pound', symbol: '£', countryCode: 'GI', continent: 'Europe' },
+  { code: 'IMP', name: 'Manx pound', symbol: '£', countryCode: 'IM', continent: 'Europe' },
+  { code: 'JEP', name: 'Jersey Pound', symbol: '£', countryCode: 'JE', continent: 'Europe' },
   
   // Asia
   { code: 'JPY', name: 'Japanese Yen', symbol: '¥', countryCode: 'JP', continent: 'Asia' },
   { code: 'CNY', name: 'Chinese Yuan', symbol: '¥', countryCode: 'CN', continent: 'Asia' },
+  { code: 'CNH', name: 'Chinese Yuan Offshore', symbol: '¥', countryCode: 'HK', continent: 'Asia' },
   { code: 'HKD', name: 'Hong Kong Dollar', symbol: 'HK$', countryCode: 'HK', continent: 'Asia' },
   { code: 'SGD', name: 'Singapore Dollar', symbol: 'S$', countryCode: 'SG', continent: 'Asia' },
   { code: 'INR', name: 'Indian Rupee', symbol: '₹', countryCode: 'IN', continent: 'Asia' },
@@ -79,6 +96,14 @@ export const ALL_CURRENCIES = [
   { code: 'YER', name: 'Yemeni Rial', symbol: 'ر.ي', countryCode: 'YE', continent: 'Asia' },
   { code: 'BND', name: 'Brunei Dollar', symbol: 'B$', countryCode: 'BN', continent: 'Asia' },
   { code: 'AFN', name: 'Afghan Afghani', symbol: '؋', countryCode: 'AF', continent: 'Asia' },
+  { code: 'BTN', name: 'Bhutanese Ngultrum', symbol: 'Nu.', countryCode: 'BT', continent: 'Asia' },
+  { code: 'KGS', name: 'Kyrgystani Som', symbol: 'с', countryCode: 'KG', continent: 'Asia' },
+  { code: 'KPW', name: 'North Korean Won', symbol: '₩', countryCode: 'KP', continent: 'Asia' },
+  { code: 'LAK', name: 'Laotian Kip', symbol: '₭', countryCode: 'LA', continent: 'Asia' },
+  { code: 'MNT', name: 'Mongolian Tugrik', symbol: '₮', countryCode: 'MN', continent: 'Asia' },
+  { code: 'MVR', name: 'Maldivian Rufiyaa', symbol: 'Rf', countryCode: 'MV', continent: 'Asia' },
+  { code: 'TJS', name: 'Tajikistani Somoni', symbol: 'ЅМ', countryCode: 'TJ', continent: 'Asia' },
+  { code: 'TMT', name: 'Turkmenistani Manat', symbol: 'm', countryCode: 'TM', continent: 'Asia' },
 
   // South America
   { code: 'BRL', name: 'Brazilian Real', symbol: 'R$', countryCode: 'BR', continent: 'South America' },
@@ -89,12 +114,20 @@ export const ALL_CURRENCIES = [
   { code: 'BOB', name: 'Bolivian Boliviano', symbol: 'Bs', countryCode: 'BO', continent: 'South America' },
   { code: 'PYG', name: 'Paraguayan Guarani', symbol: '₲', countryCode: 'PY', continent: 'South America' },
   { code: 'UYU', name: 'Uruguayan Peso', symbol: '$U', countryCode: 'UY', continent: 'South America' },
-  { code: 'VEF', name: 'Venezuelan Bolívar', symbol: 'Bs.F.', countryCode: 'VE', continent: 'South America' },
+  { code: 'VES', name: 'Sovereign Bolivar', symbol: 'Bs.S', countryCode: 'VE', continent: 'South America' },
+  { code: 'SRD', name: 'Surinamese Dollar', symbol: '$', countryCode: 'SR', continent: 'South America' },
+  { code: 'GYD', name: 'Guyanaese Dollar', symbol: '$', countryCode: 'GY', continent: 'South America' },
   
   // Oceania
   { code: 'AUD', name: 'Australian Dollar', symbol: 'A$', countryCode: 'AU', continent: 'Oceania' },
   { code: 'NZD', name: 'New Zealand Dollar', symbol: 'NZ$', countryCode: 'NZ', continent: 'Oceania' },
   { code: 'TOP', name: 'Tongan Paʻanga', symbol: 'T$', countryCode: 'TO', continent: 'Oceania' },
+  { code: 'FJD', name: 'Fijian Dollar', symbol: '$', countryCode: 'FJ', continent: 'Oceania' },
+  { code: 'PGK', name: 'Papua New Guinean Kina', symbol: 'K', countryCode: 'PG', continent: 'Oceania' },
+  { code: 'SBD', name: 'Solomon Islands Dollar', symbol: '$', countryCode: 'SB', continent: 'Oceania' },
+  { code: 'VUV', name: 'Vanuatu Vatu', symbol: 'Vt', countryCode: 'VU', continent: 'Oceania' },
+  { code: 'WST', name: 'Samoan Tala', symbol: 'T', countryCode: 'WS', continent: 'Oceania' },
+  { code: 'XPF', name: 'CFP Franc', symbol: '₣', countryCode: 'PF', continent: 'Oceania' },
   
   // Africa
   { code: 'ZAR', name: 'South African Rand', symbol: 'R', countryCode: 'ZA', continent: 'Africa' },
@@ -128,6 +161,18 @@ export const ALL_CURRENCIES = [
   { code: 'ERN', name: 'Eritrean Nakfa', symbol: 'Nfk', countryCode: 'ER', continent: 'Africa' },
   { code: 'LYD', name: 'Libyan Dinar', symbol: 'ل.د', countryCode: 'LY', continent: 'Africa' },
   { code: 'KMF', name: 'Comorian Franc', symbol: 'CF', countryCode: 'KM', continent: 'Africa' },
+  { code: 'AOA', name: 'Angolan Kwanza', symbol: 'Kz', countryCode: 'AO', continent: 'Africa' },
+  { code: 'GMD', name: 'Gambian Dalasi', symbol: 'D', countryCode: 'GM', continent: 'Africa' },
+  { code: 'LRD', name: 'Liberian Dollar', symbol: '$', countryCode: 'LR', continent: 'Africa' },
+  { code: 'LSL', name: 'Lesotho Loti', symbol: 'L', countryCode: 'LS', continent: 'Africa' },
+  { code: 'MRU', name: 'Mauritanian Ouguiya', symbol: 'UM', countryCode: 'MR', continent: 'Africa' },
+  { code: 'MWK', name: 'Malawian Kwacha', symbol: 'MK', countryCode: 'MW', continent: 'Africa' },
+  { code: 'SCR', name: 'Seychellois Rupee', symbol: '₨', countryCode: 'SC', continent: 'Africa' },
+  { code: 'SHP', name: 'Saint Helena Pound', symbol: '£', countryCode: 'SH', continent: 'Africa' },
+  { code: 'SLE', name: 'Sierra Leonean Leone', symbol: 'Le', countryCode: 'SL', continent: 'Africa' },
+  { code: 'STN', name: 'São Tomé and Príncipe Dobra', symbol: 'Db', countryCode: 'ST', continent: 'Africa' },
+  { code: 'SZL', name: 'Swazi Lilangeni', symbol: 'L', countryCode: 'SZ', continent: 'Africa' },
+  { code: 'ZMW', name: 'Zambian Kwacha', symbol: 'ZK', countryCode: 'ZM', continent: 'Africa' },
 ];
 
 // Define continent order
@@ -160,6 +205,11 @@ export const getCurrencyByCode = (code) => {
   return ALL_CURRENCIES.find(c => c.code === code);
 };
 
+// Helper function to get currency info (alias for getCurrencyByCode for clarity)
+export const getCurrencyInfo = (code) => {
+  return getCurrencyByCode(code);
+};
+
 // Helper function to get currency symbol (with country prefix if needed)
 export const getCurrencySymbol = (currencyCode) => {
   try {
@@ -184,17 +234,20 @@ export const formatCurrency = (amount, currencyCode) => {
   if (!currency) return `${amount}`;
   
   try {
-    // Get the currency symbol (with country prefix if needed)
-    const symbol = getCurrencySymbol(currencyCode);
-    
-    // Format the number with thousand separators and decimals
-    const formattedNumber = new Intl.NumberFormat('en-US', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
+    // Use Intl.NumberFormat with the currency code to get proper formatting
+    // This handles:
+    // - Thousands separators (comma or space depending on locale)
+    // - Decimal separators (period or comma)
+    // - Currency symbol
+    // - Correct decimal places (0 for JPY, 2 for USD, 3 for BHD, etc.)
+    const formatted = new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: currencyCode,
+      minimumFractionDigits: undefined, // Let Intl determine based on currency
+      maximumFractionDigits: undefined, // Let Intl determine based on currency
     }).format(amount);
     
-    // Return symbol + space + formatted number
-    return `${symbol} ${formattedNumber}`;
+    return formatted;
   } catch {
     // Fallback if currency code is invalid
     return `${currency.symbol} ${Number(amount).toFixed(2)}`;

@@ -13,7 +13,7 @@ import { validateName } from '../utils/validators';
 import { GROUPED_CURRENCY_OPTIONS, ALL_CURRENCIES, getCurrencySymbol } from '../data/currencies';
 import { WALLET_TYPES } from '../data/walletTypes';
 import { CountryFlag } from '../components/CountryFlag';
-import { MAX_AMOUNT, formatMaxAmount } from '../utils/amountValidation';
+import { getCurrencyDecimals, getCurrencyDecimalInfo, getMaxAmountDisplay, exceedsMaxAmount, getMaxAmountString } from '../utils/amountValidation';
 import { IconAlertTriangle } from '@tabler/icons-react';
 
 function Onboarding() {
@@ -121,9 +121,9 @@ function Onboarding() {
     const handleKeyPress = (e) => {
       if (e.key === 'Enter') {
         // Check if button should be disabled
-        const isDisabled = completeMutation.isPending || 
-                          (activeStep === 1 && !baseCurrency) || 
-                          (activeStep === 2 && (!walletType || (startingBalance && parseFloat(startingBalance) > MAX_AMOUNT)));
+        const isDisabled = completeMutation.isPending ||
+                          (activeStep === 1 && !baseCurrency) ||
+                          (activeStep === 2 && (!walletType || exceedsMaxAmount(startingBalance, baseCurrency)));
         
         if (!isDisabled) {
           if (activeStep === 0) {
@@ -224,7 +224,17 @@ function Onboarding() {
                     exit="exit"
                     transition={{ duration: 0.3, ease: 'easeInOut' }}
                   >
-                    <Stack gap="lg">
+                    <Stack 
+                      gap="lg"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+                          e.preventDefault();
+                          if (!completeMutation.isPending) {
+                            handleNext();
+                          }
+                        }
+                      }}
+                    >
                       <Title order={1} ta="center" c="gray.11">What's your name?</Title>
                       <Text size="sm" ta="center" c="gray.11" fw={400}>
                         This helps us personalize your experience and lets you manage multiple family accounts in the future.
@@ -270,7 +280,17 @@ function Onboarding() {
                     exit="exit"
                     transition={{ duration: 0.3, ease: 'easeInOut' }}
                   >
-                    <Stack gap="lg">
+                    <Stack 
+                      gap="lg"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+                          e.preventDefault();
+                          if (!completeMutation.isPending && baseCurrency) {
+                            handleNext();
+                          }
+                        }
+                      }}
+                    >
                       <Title order={1} ta="center" c="gray.11">Choose Your Currency</Title>
                       <Text size="sm" ta="center" c="gray.11" fw={400}>
                         Your default currency will be used for charts and summaries.
@@ -333,7 +353,18 @@ function Onboarding() {
                     exit="exit"
                     transition={{ duration: 0.3, ease: 'easeInOut' }}
                   >
-                    <Stack gap="lg">
+                    <Stack 
+                      gap="lg"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+                          e.preventDefault();
+                          const isDisabled = completeMutation.isPending || !walletType || exceedsMaxAmount(startingBalance, baseCurrency);
+                          if (!isDisabled) {
+                            handleNext();
+                          }
+                        }
+                      }}
+                    >
                       <Title order={1} ta="center" c="gray.11">Create Your First Wallet</Title>
                       <Text size="sm" ta="center" c="gray.11" fw={400}>
                         A wallet is any place you keep money - bank, cash or digital. You can create more later.
@@ -369,13 +400,22 @@ function Onboarding() {
                       
                       <NumberInput
                         label="Starting Balance (Optional)"
-                        placeholder="0.00"
+                        placeholder={baseCurrency ? (getCurrencyDecimals(baseCurrency) === 0 ? "0" : "0." + "0".repeat(getCurrencyDecimals(baseCurrency))) : "0.00"}
                         value={startingBalance}
                         onChange={setStartingBalance}
-                        decimalScale={2}
+                        onBlur={(e) => {
+                          // Get the raw string value from the input to avoid floating point precision loss
+                          const rawValue = e.target.value?.replace(/,/g, '').replace(/[^\d.]/g, '');
+                          
+                          // Auto-correct to max if exceeded (check raw string value)
+                          if (rawValue && baseCurrency && exceedsMaxAmount(rawValue, baseCurrency)) {
+                            setStartingBalance(getMaxAmountString(baseCurrency));
+                          }
+                        }}
+                        decimalScale={baseCurrency ? getCurrencyDecimals(baseCurrency) : 2}
+                        fixedDecimalScale={baseCurrency ? getCurrencyDecimals(baseCurrency) > 0 : true}
                         thousandSeparator=","
                         min={0}
-                        max={MAX_AMOUNT}
                         size="md"
                         className="text-input"
                         prefix={baseCurrency ? getCurrencySymbol(baseCurrency) + ' ' : ''}
@@ -384,15 +424,29 @@ function Onboarding() {
                         }}
                       />
                       
-                      {/* Balance overflow warning */}
-                      {startingBalance && parseFloat(startingBalance) > MAX_AMOUNT && (
-                        <Group gap="xs" wrap="nowrap" style={{ marginTop: '-8px', marginBottom: '8px' }}>
-                          <IconAlertTriangle size={16} color="var(--red-9)" style={{ flexShrink: 0 }} />
-                          <Text size="xs" c="red.9">
-                            Balance exceeds maximum allowed value of {formatMaxAmount(MAX_AMOUNT)}
+                      {/* Currency decimal info message */}
+                      {(() => {
+                        const decimalInfo = baseCurrency ? getCurrencyDecimalInfo(baseCurrency) : null;
+                        const hasValue = startingBalance && parseFloat(startingBalance) > 0;
+                        return decimalInfo && hasValue ? (
+                          <Text size="xs" c="gray.9" style={{ marginTop: '-8px' }}>
+                            {decimalInfo}
                           </Text>
-                        </Group>
-                      )}
+                        ) : null;
+                      })()}
+                      
+                      {/* Balance overflow warning */}
+                      {(() => {
+                        if (!startingBalance || !baseCurrency) return null;
+                        return exceedsMaxAmount(startingBalance, baseCurrency) ? (
+                          <Group gap="xs" wrap="nowrap" style={{ marginTop: '-8px', marginBottom: '8px' }}>
+                            <IconAlertTriangle size={16} color="var(--red-9)" style={{ flexShrink: 0 }} />
+                            <Text size="xs" c="red.9">
+                              Balance exceeds maximum allowed amount of {getMaxAmountDisplay(baseCurrency)}
+                            </Text>
+                          </Group>
+                        ) : null;
+                      })()}
                       
                       <Box>
                         <Checkbox
@@ -424,7 +478,7 @@ function Onboarding() {
                 disabled={
                   completeMutation.isPending || 
                   (activeStep === 1 && !baseCurrency) || 
-                  (activeStep === 2 && (!walletType || (startingBalance && parseFloat(startingBalance) > MAX_AMOUNT)))
+                  (activeStep === 2 && (!walletType || exceedsMaxAmount(startingBalance, baseCurrency)))
                 }
               >
                 {activeStep === 2 ? 'Start' : 'Continue'}

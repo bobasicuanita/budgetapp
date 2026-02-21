@@ -138,3 +138,52 @@ export const transactionLongTermLimiter = rateLimit({
     return !req.user?.userId;
   }
 });
+
+/**
+ * Rate limiter for CSV export
+ * Dual limits:
+ * - 3 exports per minute
+ * - 10 exports per hour
+ * 
+ * Per authenticated user (using req.user.userId as key)
+ */
+
+// Short-term limit: 3 exports per minute
+export const csvExportShortTermLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 3, // 3 exports per minute
+  message: "You're exporting too frequently. Please try again in a moment.",
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    return req.user?.userId?.toString();
+  },
+  handler: (req, res) => {
+    res.status(429).json({
+      error: "You're exporting too frequently. Please try again in a moment."
+    });
+  },
+  skip: (req) => {
+    return !req.user?.userId;
+  }
+});
+
+// Long-term limit: 10 exports per hour
+export const csvExportLongTermLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10, // 10 exports per hour
+  message: "You're exporting too frequently. Please try again in a moment.",
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    return req.user?.userId?.toString();
+  },
+  handler: (req, res) => {
+    res.status(429).json({
+      error: "You're exporting too frequently. Please try again in a moment."
+    });
+  },
+  skip: (req) => {
+    return !req.user?.userId;
+  }
+});

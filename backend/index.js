@@ -7,7 +7,9 @@ import onboardingRoutes from "./routes/onboarding.js";
 import walletRoutes from "./routes/wallets.js";
 import referenceDataRoutes from "./routes/referenceData.js";
 import transactionRoutes from "./routes/transactions.js";
+import exchangeRateRoutes from "./routes/exchangeRates.js";
 import { authenticateToken } from "./middleware/auth.js";
+import { scheduleExchangeRateFetch } from "./jobs/exchangeRateCron.js";
 
 dotenv.config();
 
@@ -46,6 +48,9 @@ app.use("/api/user", referenceDataRoutes);
 // Transaction routes (protected)
 app.use("/api/transactions", transactionRoutes);
 
+// Exchange rate routes (protected)
+app.use("/api/exchange-rates", exchangeRateRoutes);
+
 // Example protected route
 app.get("/api/protected", (req, res) => {
   res.json({ 
@@ -59,4 +64,7 @@ app.get("/api/protected", (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
+  
+  // Start exchange rate cron job
+  scheduleExchangeRateFetch();
 });

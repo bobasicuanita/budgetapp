@@ -82,10 +82,11 @@ function AppLayout({ children }) {
       padding="md"
       styles={{
         main: {
-          backgroundColor: 'var(--blue-3)'
+          backgroundColor: 'var(--gray-3)',
+          paddingLeft: 220
         },
         navbar: {
-          backgroundColor: 'var(--blue-3)',
+          backgroundColor: 'var(--gray-3)',
           border: 'none',
           transition: 'width 0.2s ease'
         }
@@ -114,7 +115,12 @@ function AppLayout({ children }) {
                 variant="subtle"
                 color="gray.11"
                 className="sidebar-toggle-icon"
-                style={{ color: 'var(--gray-12)', flexShrink: 0 }}
+                style={{ 
+                  color: 'var(--gray-12)', 
+                  flexShrink: 0,
+                  backgroundColor: 'white',
+                  boxShadow: 'var(--mantine-shadow-sm)'
+                }}
               >
                 {desktopOpened ? (
                   <IconLayoutSidebarLeftCollapse size={20} />
@@ -157,7 +163,8 @@ function AppLayout({ children }) {
                       borderRadius: '8px',
                       color: isActive ? 'var(--blue-9)' : undefined,
                       justifyContent: desktopOpened ? 'flex-start' : 'center',
-                      backgroundColor: isActive ? 'var(--blue-4)' : undefined,
+                      backgroundColor: isActive ? 'white' : undefined,
+                      boxShadow: isActive ? 'var(--mantine-shadow-sm)' : undefined,
                     }}
                     styles={{
                       label: {

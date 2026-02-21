@@ -3,6 +3,7 @@ import ProtectedRoute from '../components/ProtectedRoute';
 import GuestRoute from '../components/GuestRoute';
 import RootRedirect from '../components/RootRedirect';
 import RequireOnboarding from '../components/RequireOnboarding';
+import { FilterDrawerProvider } from '../contexts/FilterDrawerContext';
 
 // Page components
 import Login from '../pages/Login';
@@ -10,6 +11,7 @@ import VerifyOtp from '../pages/VerifyOtp';
 import Onboarding from '../pages/Onboarding';
 import Dashboard from '../pages/Dashboard';
 import Wallets from '../pages/Wallets';
+import WalletDetails from '../pages/WalletDetails';
 import Transactions from '../pages/Transactions';
 // import Settings from '../pages/Settings';
 // import Budgets from '../pages/Budgets';
@@ -18,7 +20,8 @@ import Transactions from '../pages/Transactions';
 function AppRoutes() {
   return (
     <BrowserRouter>
-      <Routes>
+      <FilterDrawerProvider>
+        <Routes>
         {/* ===== ROOT ===== */}
         <Route path="/" element={<RootRedirect />} />
         
@@ -74,6 +77,17 @@ function AppRoutes() {
         />
         
         <Route 
+          path="/wallets/:walletId" 
+          element={
+            <ProtectedRoute>
+              <RequireOnboarding>
+                <WalletDetails />
+              </RequireOnboarding>
+            </ProtectedRoute>
+          } 
+        />
+        
+        <Route 
           path="/transactions" 
           element={
             <ProtectedRoute>
@@ -104,7 +118,8 @@ function AppRoutes() {
         
         {/* ===== 404 NOT FOUND ===== */}
         {/* <Route path="*" element={<NotFound />} /> */}
-      </Routes>
+        </Routes>
+      </FilterDrawerProvider>
     </BrowserRouter>
   );
 }
