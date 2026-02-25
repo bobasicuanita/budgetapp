@@ -1,4 +1,4 @@
-import { Drawer, Stack, Text, NumberInput, Chip, Group, Select, Badge, Box, TextInput, Button, Tooltip, Alert, Loader } from '@mantine/core';
+import { Drawer, Stack, Text, NumberInput, Chip, Group, Select, Badge, Box, TextInput, Button, Tooltip, Alert, Loader, Avatar } from '@mantine/core';
 import { DateInput } from '@mantine/dates';
 import { IconCalendar, IconAlertTriangle, IconInfoCircle } from '@tabler/icons-react';
 import PropTypes from 'prop-types';
@@ -30,6 +30,10 @@ const TransactionDrawer = ({
   description,
   selectedTags,
   customTags,
+  
+  // Transfer mode
+  transferFromWallet,
+  fromWalletDisabled = false, // If set, locks to transfer mode and hides type selector
   
   // Transaction setters
   onTransactionTypeChange,
@@ -186,8 +190,8 @@ const TransactionDrawer = ({
       }}
     >
       <Stack gap="lg" onKeyDown={handleKeyDown}>
-        {/* Transaction Type Selector - Only in Add mode */}
-        {!editMode && (
+        {/* Transaction Type Selector - Only in Add mode and not in transfer-from-wallet mode */}
+        {!editMode && !transferFromWallet && (
           <div>
             <Text size="xs" fw={500} mb={8}>
               Transaction Type
@@ -242,19 +246,71 @@ const TransactionDrawer = ({
             clearable
             disabled={walletsLoading}
             styles={{
-              label: { fontSize: '12px', fontWeight: 500 }
+              label: { fontSize: '12px', fontWeight: 500 },
+              input: {
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap'
+              }
             }}
             renderOption={({ option }) => {
               const wallet = option.wallet;
               if (!wallet) return option.label;
               
+              // Get wallet initials for colored avatar fallback
+              const words = wallet.name.split(' ');
+              const initials = (words[0]?.charAt(0) || '') + (words[1]?.charAt(0) || '');
+              
               return (
                 <Group gap="xs" wrap="nowrap" justify="space-between" style={{ width: '100%' }}>
-                  <Group gap="xs" wrap="nowrap">
-                    <Text size="lg" style={{ flexShrink: 0 }}>
-                      {wallet.icon}
-                    </Text>
-                    <Text size="sm" style={{ flexShrink: 0 }}>
+                  <Group gap="xs" wrap="nowrap" style={{ minWidth: 0, flex: 1, overflow: 'hidden' }}>
+                    {wallet.icon && (wallet.icon.startsWith('data:image') || wallet.icon.startsWith('http')) ? (
+                      <Box
+                        style={{
+                          width: '24px',
+                          height: '24px',
+                          borderRadius: '4px',
+                          overflow: 'hidden',
+                          border: '1px solid var(--gray-3)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0
+                        }}
+                      >
+                        <img 
+                          src={wallet.icon} 
+                          alt={wallet.name}
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'contain'
+                          }}
+                        />
+                      </Box>
+                    ) : (
+                      <Avatar
+                        size="sm"
+                        radius="sm"
+                        color="white"
+                        style={{
+                          backgroundColor: `var(--${wallet.color}-9)`,
+                          flexShrink: 0
+                        }}
+                      >
+                        <Text size="xs">{initials}</Text>
+                      </Avatar>
+                    )}
+                    <Text 
+                      size="sm" 
+                      style={{ 
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        minWidth: 0,
+                        maxWidth: '120px'
+                      }}
+                    >
                       {wallet.name}
                     </Text>
                     <Badge
@@ -302,7 +358,7 @@ const TransactionDrawer = ({
           onChange={onAmountChange}
           onBlur={onAmountBlur}
           decimalScale={currencyDecimals}
-          fixedDecimalScale={currencyDecimals > 0}
+          fixedDecimalScale={false}
           thousandSeparator=","
           min={0}
           max={maxAllowedAmount}
@@ -330,7 +386,7 @@ const TransactionDrawer = ({
             <Text size="xs" c="red.9">
               {amountOverflowWarning.type === 'amount_overflow'
                 ? amountOverflowWarning.message
-                : amountOverflowWarning.type === 'networth_overflow'
+                : amountOverflowWarning.type === 'liquidity_overflow'
                 ? `Maximum allowed amount: ${formatCurrency(amountOverflowWarning.maxAllowed, amountOverflowWarning.currency)}`
                 : `Maximum allowed amount for this wallet: ${formatCurrency(amountOverflowWarning.maxAllowed, amountOverflowWarning.currency)}`
               }
@@ -375,23 +431,75 @@ const TransactionDrawer = ({
               })) || []}
               size="md"
               className="text-input"
+              disabled={fromWalletDisabled || walletsLoading}
               searchable
               clearable
-              disabled={walletsLoading}
               styles={{
-                label: { fontSize: '12px', fontWeight: 500 }
+                label: { fontSize: '12px', fontWeight: 500 },
+                input: {
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
+                }
               }}
               renderOption={({ option }) => {
                 const wallet = option.wallet;
                 if (!wallet) return option.label;
-                
+
+                // Get wallet initials for colored avatar fallback
+                const words = wallet.name.split(' ');
+                const initials = (words[0]?.charAt(0) || '') + (words[1]?.charAt(0) || '');
+
                 return (
                   <Group gap="xs" wrap="nowrap" justify="space-between" style={{ width: '100%' }}>
-                    <Group gap="xs" wrap="nowrap">
-                      <Text size="lg" style={{ flexShrink: 0 }}>
-                        {wallet.icon}
-                      </Text>
-                      <Text size="sm" style={{ flexShrink: 0 }}>
+                    <Group gap="xs" wrap="nowrap" style={{ minWidth: 0, flex: 1, overflow: 'hidden' }}>
+                      {wallet.icon && (wallet.icon.startsWith('data:image') || wallet.icon.startsWith('http')) ? (
+                        <Box
+                          style={{
+                            width: '24px',
+                            height: '24px',
+                            borderRadius: '4px',
+                            overflow: 'hidden',
+                            border: '1px solid var(--gray-3)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0
+                          }}
+                        >
+                          <img 
+                            src={wallet.icon} 
+                            alt={wallet.name}
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              objectFit: 'contain'
+                            }}
+                          />
+                        </Box>
+                      ) : (
+                        <Avatar
+                          size="sm"
+                          radius="sm"
+                          color="white"
+                          style={{
+                            backgroundColor: `var(--${wallet.color}-9)`,
+                            flexShrink: 0
+                          }}
+                        >
+                          <Text size="xs">{initials}</Text>
+                        </Avatar>
+                      )}
+                      <Text 
+                        size="sm" 
+                        style={{ 
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          minWidth: 0,
+                          maxWidth: '120px'
+                        }}
+                      >
                         {wallet.name}
                       </Text>
                       <Badge
@@ -441,19 +549,71 @@ const TransactionDrawer = ({
               clearable
               disabled={walletsLoading || !fromWalletId}
               styles={{
-                label: { fontSize: '12px', fontWeight: 500 }
+                label: { fontSize: '12px', fontWeight: 500 },
+                input: {
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
+                }
               }}
               renderOption={({ option }) => {
                 const wallet = option.wallet;
                 if (!wallet) return option.label;
-                
+
+                // Get wallet initials for colored avatar fallback
+                const words = wallet.name.split(' ');
+                const initials = (words[0]?.charAt(0) || '') + (words[1]?.charAt(0) || '');
+
                 return (
                   <Group gap="xs" wrap="nowrap" justify="space-between" style={{ width: '100%' }}>
-                    <Group gap="xs" wrap="nowrap">
-                      <Text size="lg" style={{ flexShrink: 0 }}>
-                        {wallet.icon}
-                      </Text>
-                      <Text size="sm" style={{ flexShrink: 0 }}>
+                    <Group gap="xs" wrap="nowrap" style={{ minWidth: 0, flex: 1, overflow: 'hidden' }}>
+                      {wallet.icon && (wallet.icon.startsWith('data:image') || wallet.icon.startsWith('http')) ? (
+                        <Box
+                          style={{
+                            width: '24px',
+                            height: '24px',
+                            borderRadius: '4px',
+                            overflow: 'hidden',
+                            border: '1px solid var(--gray-3)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0
+                          }}
+                        >
+                          <img 
+                            src={wallet.icon} 
+                            alt={wallet.name}
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              objectFit: 'contain'
+                            }}
+                          />
+                        </Box>
+                      ) : (
+                        <Avatar
+                          size="sm"
+                          radius="sm"
+                          color="white"
+                          style={{
+                            backgroundColor: `var(--${wallet.color}-9)`,
+                            flexShrink: 0
+                          }}
+                        >
+                          <Text size="xs">{initials}</Text>
+                        </Avatar>
+                      )}
+                      <Text 
+                        size="sm" 
+                        style={{ 
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          minWidth: 0,
+                          maxWidth: '120px'
+                        }}
+                      >
                         {wallet.name}
                       </Text>
                       <Badge
@@ -743,6 +903,7 @@ const TransactionDrawer = ({
             <Alert 
               icon={bannerIcon} 
               color={bannerColor}
+              c={bannerColor}
               variant="light"
               styles={{
                 root: { padding: '12px' },
@@ -915,6 +1076,7 @@ const TransactionDrawer = ({
           onMouseDown={createRipple}
           loading={isSubmitting}
           disabled={
+            isSubmitting ||
             !amount || 
             !date || 
             dateValidationError ||
@@ -933,7 +1095,7 @@ const TransactionDrawer = ({
             }
           }}
         >
-          {editMode ? 'Update Transaction' : 'Add Transaction'}
+          {editMode ? 'Update Transaction' : transferFromWallet ? 'Transfer' : 'Add Transaction'}
         </Button>
       </Stack>
     </Drawer>
@@ -944,7 +1106,7 @@ TransactionDrawer.propTypes = {
   opened: PropTypes.bool.isRequired,
   onClose: PropTypes.func.isRequired,
   editMode: PropTypes.bool.isRequired,
-  drawerTitle: PropTypes.string.isRequired,
+  drawerTitle: PropTypes.node.isRequired,
   transactionType: PropTypes.string.isRequired,
   amount: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
   category: PropTypes.string,
@@ -1002,6 +1164,8 @@ TransactionDrawer.propTypes = {
   manualExchangeRate: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   onManualExchangeRateChange: PropTypes.func,
   baseCurrency: PropTypes.string,
+  transferFromWallet: PropTypes.number,
+  fromWalletDisabled: PropTypes.bool,
 };
 
 export default TransactionDrawer;

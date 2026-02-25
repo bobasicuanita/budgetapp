@@ -450,7 +450,7 @@ function Onboarding() {
                       
                       <Box>
                         <Checkbox
-                          label="Include in available balance"
+                          label="Available for spending"
                           checked={includeInBalance}
                           onChange={(event) => setIncludeInBalance(event.currentTarget.checked)}
                           size="sm"

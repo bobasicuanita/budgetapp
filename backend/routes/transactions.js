@@ -14,11 +14,11 @@ import * as currencies from '@dinero.js/currencies';
 const router = express.Router();
 
 /**
- * Get maximum net worth for a currency as a string (to avoid floating point precision issues)
+ * Get maximum liquidity for a currency as a string (to avoid floating point precision issues)
  * @param {string} currencyCode - ISO 4217 currency code
- * @returns {string} Maximum net worth value as string
+ * @returns {string} Maximum liquidity value as string
  */
-function getMaxNetWorthString(currencyCode) {
+function getMaxLiquidityString(currencyCode) {
   const exponent = getCurrencyDecimals(currencyCode);
   
   if (exponent === 0) {
@@ -163,11 +163,11 @@ function getCurrencyDecimals(currencyCode) {
 }
 
 /**
- * Format max net worth for display with proper decimals
+ * Format max liquidity for display with proper decimals
  * Manually constructs the formatted string to avoid parseFloat precision loss
  */
-function formatMaxNetWorth(currencyCode) {
-  const maxValueStr = getMaxNetWorthString(currencyCode);
+function formatMaxLiquidity(currencyCode) {
+  const maxValueStr = getMaxLiquidityString(currencyCode);
   const decimals = getCurrencyDecimals(currencyCode);
   
   // Split into integer and decimal parts
@@ -226,21 +226,21 @@ function convertCurrency(amount, fromCurrency, toCurrency, exchangeRates) {
 }
 
 /**
- * Check if a transaction would exceed the maximum total net worth
+ * Check if a transaction would exceed the maximum total liquidity
  * @param {number} userId - User ID
  * @param {string} baseCurrency - User's base currency
  * @param {Array} walletChanges - Array of {walletId, amountChange, walletCurrency}
  * @returns {Promise<{valid: boolean, error: string|null, maxAllowed: number|null}>}
  */
-async function validateNetWorthLimit(userId, baseCurrency, walletChanges) {
+async function validateLiquidityLimit(userId, baseCurrency, walletChanges) {
   try {
-    const MAX_TOTAL_NET_WORTH_STR = getMaxNetWorthString(baseCurrency);
+    const MAX_TOTAL_LIQUIDITY_STR = getMaxLiquidityString(baseCurrency);
     
     // Get all wallets
     const allWallets = await sql`
       SELECT id, currency, current_balance, include_in_balance
       FROM wallets
-      WHERE user_id = ${userId}
+      WHERE user_id = ${userId} AND is_archived = FALSE
     `;
     
     // Get exchange rates
@@ -264,13 +264,16 @@ async function validateNetWorthLimit(userId, baseCurrency, walletChanges) {
       }, {});
     }
     
-    // Calculate current net worth (ALL wallets count, not just those included in available balance)
+    // Calculate current liquidity (ALL wallets count, not just those included in available balance)
     const baseDecimals = getCurrencyDecimals(baseCurrency);
-    const currentNetWorth = allWallets.reduce((sum, wallet) => {
+    const currentLiquidityNum = allWallets.reduce((sum, wallet) => {
       const balance = parseFloat(wallet.current_balance);
       const converted = convertCurrency(balance, wallet.currency, baseCurrency, exchangeRates);
       return sum + converted;
     }, 0);
+    
+    // Convert to string with proper decimals to preserve precision
+    const currentLiquidity = currentLiquidityNum.toFixed(baseDecimals);
     
     // Calculate the net change in base currency
     let netChangeInBaseCurrency = 0;
@@ -291,22 +294,20 @@ async function validateNetWorthLimit(userId, baseCurrency, walletChanges) {
     }
     
     // Keep as string to preserve precision
-    const projectedNetWorthStr = (currentNetWorth + netChangeInBaseCurrency).toFixed(baseDecimals);
+    const projectedLiquidityStr = (parseFloat(currentLiquidity) + netChangeInBaseCurrency).toFixed(baseDecimals);
     
-    console.log(`[Transaction] Current net worth: ${currentNetWorth.toFixed(baseDecimals)}, Projected: ${projectedNetWorthStr}, Max: ${MAX_TOTAL_NET_WORTH_STR}`);
-    
-    if (exceedsValueString(projectedNetWorthStr, MAX_TOTAL_NET_WORTH_STR)) {
-      const availableStr = subtractFromMaxString(MAX_TOTAL_NET_WORTH_STR, currentNetWorth, baseDecimals);
+    if (exceedsValueString(projectedLiquidityStr, MAX_TOTAL_LIQUIDITY_STR)) {
+      const availableStr = subtractFromMaxString(MAX_TOTAL_LIQUIDITY_STR, currentLiquidity, baseDecimals);
       return {
         valid: false,
-        error: `This transaction would exceed the maximum total net worth of ${formatMaxNetWorth(baseCurrency)} ${baseCurrency}.`,
+        error: `This transaction would exceed the maximum total liquidity of ${formatMaxLiquidity(baseCurrency)} ${baseCurrency}.`,
         maxAllowed: Math.max(0, parseFloat(availableStr))
       };
     }
     
     return { valid: true, error: null, maxAllowed: null };
   } catch (error) {
-    console.error('Error validating net worth limit:', error);
+    console.error('Error validating liquidity limit:', error);
     throw error;
   }
 }
@@ -456,16 +457,21 @@ router.get("/ids", authenticateToken, async (req, res) => {
     // For transfers, only show one transaction per pair (the "from" side with negative amount)
     queryParts.additional.push(`(t.type != 'transfer' OR t.amount < 0)`);
     
+    // Exclude transactions from archived wallets
+    queryParts.additional.push(`(w.is_archived = false OR w.is_archived IS NULL)`);
+    queryParts.additional.push(`(tw.is_archived = false OR tw.is_archived IS NULL OR t.to_wallet_id IS NULL)`);
+    
+    // Exclude system transactions (balance adjustments) from bulk operations
+    queryParts.additional.push(`t.is_system = false`);
+    
     const fullWhereClause = queryParts.additional.length > 0
       ? `${queryParts.baseWhere} AND ${queryParts.additional.join(' AND ')}`
       : queryParts.baseWhere;
 
-    // Build FROM clause (needs wallet joins if currency filter is used)
-    const queryFrom = (currency && currency.trim()) || exclude_base_currency === 'true'
-      ? `transactions t 
-         LEFT JOIN wallets w ON t.wallet_id = w.id
-         LEFT JOIN wallets tw ON t.to_wallet_id = tw.id`
-      : `transactions t`;
+    // Build FROM clause (always need wallet joins to filter archived wallets)
+    const queryFrom = `transactions t 
+       LEFT JOIN wallets w ON t.wallet_id = w.id
+       LEFT JOIN wallets tw ON t.to_wallet_id = tw.id`;
 
     // Get all transaction IDs matching filters
     const transactionIds = await sql.unsafe(`
@@ -659,16 +665,21 @@ router.get("/", authenticateToken, async (req, res) => {
     // For transfers, only show one transaction per pair (the "from" side with negative amount)
     queryParts.additional.push(`(t.type != 'transfer' OR t.amount < 0)`);
     
+    // Exclude transactions from archived wallets
+    queryParts.additional.push(`(w.is_archived = false OR w.is_archived IS NULL)`);
+    queryParts.additional.push(`(tw.is_archived = false OR tw.is_archived IS NULL OR t.to_wallet_id IS NULL)`);
+    
+    // Exclude initial_balance system transactions (they're for internal bookkeeping only)
+    queryParts.additional.push(`t.system_type IS DISTINCT FROM 'initial_balance'`);
+    
     const fullWhereClause = queryParts.additional.length > 0
       ? `${queryParts.baseWhere} AND ${queryParts.additional.join(' AND ')}`
       : queryParts.baseWhere;
 
-    // Build FROM clause for COUNT/totals queries (needs wallet joins if currency filter is used)
-    const countQueryFrom = (currency && currency.trim()) || exclude_base_currency === 'true'
-      ? `transactions t 
-         LEFT JOIN wallets w ON t.wallet_id = w.id
-         LEFT JOIN wallets tw ON t.to_wallet_id = tw.id`
-      : `transactions t`;
+    // Build FROM clause for COUNT/totals queries (always need wallet joins to filter archived wallets)
+    const countQueryFrom = `transactions t 
+       LEFT JOIN wallets w ON t.wallet_id = w.id
+       LEFT JOIN wallets tw ON t.to_wallet_id = tw.id`;
 
     // Get transactions with filters
     const transactions = await sql.unsafe(`
@@ -1000,16 +1011,18 @@ router.get("/csv", authenticateToken, csvExportShortTermLimiter, csvExportLongTe
     // For transfers, only show one transaction per pair
     queryParts.additional.push(`(t.type != 'transfer' OR t.amount < 0)`);
     
+    // Exclude transactions from archived wallets
+    queryParts.additional.push(`(w.is_archived = false OR w.is_archived IS NULL)`);
+    queryParts.additional.push(`(tw.is_archived = false OR tw.is_archived IS NULL OR t.to_wallet_id IS NULL)`);
+    
     const fullWhereClause = queryParts.additional.length > 0
       ? `${queryParts.baseWhere} AND ${queryParts.additional.join(' AND ')}`
       : queryParts.baseWhere;
 
-    // Build FROM clause for COUNT query (needs wallet joins if currency filter is used)
-    const countQueryFrom = (currency && currency.trim()) || exclude_base_currency === 'true'
-      ? `transactions t 
-         LEFT JOIN wallets w ON t.wallet_id = w.id
-         LEFT JOIN wallets tw ON t.to_wallet_id = tw.id`
-      : `transactions t`;
+    // Build FROM clause for COUNT query (always need wallet joins to filter archived wallets)
+    const countQueryFrom = `transactions t 
+       LEFT JOIN wallets w ON t.wallet_id = w.id
+       LEFT JOIN wallets tw ON t.to_wallet_id = tw.id`;
 
     // First, count the transactions to check if it exceeds max limit
     const countResult = await sql.unsafe(`
@@ -1292,10 +1305,11 @@ router.post("/",
           FROM wallets 
           WHERE id IN (${fromWalletId}, ${toWalletId}) 
           AND user_id = ${userId}
+          AND is_archived = FALSE
         `;
 
         if (wallets.length !== 2) {
-          throw new Error("One or both wallets not found");
+          throw new Error("One or both wallets not found or archived");
         }
 
         const fromWallet = wallets.find(w => w.id === parseInt(fromWalletId));
@@ -1343,8 +1357,6 @@ router.post("/",
         // The base currency amount represents the "true value" of the transfer
         // e.g., 50,000 JPY = ~$322.93 USD
         const transferValueInBase = Math.abs(fromExchangeInfo.base_currency_amount);
-        
-        console.log(`[Transfer CREATE] ${amountValue} ${fromWallet.currency} = ${transferValueInBase} ${baseCurrency}`);
 
         // Step 2: Convert that base currency amount to TO wallet's currency
         let toWalletAmount;
@@ -1383,8 +1395,6 @@ router.post("/",
             manual_exchange_rate: false
           };
         }
-        
-        console.log(`[Transfer CREATE] TO wallet receives: ${toWalletAmount} ${toWallet.currency}`);
 
         // Create "from" transaction (negative)
         const [fromTransaction] = await sql`
@@ -1446,11 +1456,11 @@ router.post("/",
         const [wallet] = await sql`
           SELECT id, current_balance, type, currency, created_at 
           FROM wallets 
-          WHERE id = ${walletId} AND user_id = ${userId}
+          WHERE id = ${walletId} AND user_id = ${userId} AND is_archived = FALSE
         `;
 
         if (!wallet) {
-          throw new Error("Wallet not found");
+          throw new Error("Wallet not found or archived");
         }
         
         // Validate transaction date is not before wallet creation date
@@ -1529,14 +1539,14 @@ router.post("/",
           }
         }
 
-        // Validate net worth limit before updating balance
+        // Validate liquidity limit before updating balance
         if (actualAmount > 0) { // Only validate for income (positive amounts)
-          const netWorthCheck = await validateNetWorthLimit(userId, baseCurrency, [
+          const liquidityCheck = await validateLiquidityLimit(userId, baseCurrency, [
             { walletId, amountChange: actualAmount, walletCurrency: wallet.currency }
           ]);
           
-          if (!netWorthCheck.valid) {
-            throw new Error(netWorthCheck.error);
+          if (!liquidityCheck.valid) {
+            throw new Error(liquidityCheck.error);
           }
         }
         
@@ -1570,7 +1580,7 @@ router.post("/",
       const baseCurrency = user?.base_currency || 'USD';
       
       return res.status(400).json({ 
-        error: `This transaction would exceed the maximum allowed wallet balance of ${formatMaxNetWorth(baseCurrency)}` 
+        error: `This transaction would exceed the maximum allowed wallet balance of ${formatMaxLiquidity(baseCurrency)}` 
       });
     }
     
@@ -1925,16 +1935,16 @@ router.put("/:id",
         // Get wallets
         const [fromWallet] = await sql`
           SELECT * FROM wallets 
-          WHERE id = ${fromWalletId} AND user_id = ${userId}
+          WHERE id = ${fromWalletId} AND user_id = ${userId} AND is_archived = FALSE
         `;
 
         const [toWallet] = await sql`
           SELECT * FROM wallets 
-          WHERE id = ${toWalletId} AND user_id = ${userId}
+          WHERE id = ${toWalletId} AND user_id = ${userId} AND is_archived = FALSE
         `;
 
         if (!fromWallet || !toWallet) {
-          throw new Error("One or both wallets not found");
+          throw new Error("One or both wallets not found or archived");
         }
         
         // Validate transaction date is not before wallet creation dates
@@ -2126,11 +2136,11 @@ router.put("/:id",
         // Get wallet
         const [wallet] = await sql`
           SELECT * FROM wallets 
-          WHERE id = ${walletId} AND user_id = ${userId}
+          WHERE id = ${walletId} AND user_id = ${userId} AND is_archived = FALSE
         `;
 
         if (!wallet) {
-          throw new Error("Wallet not found");
+          throw new Error("Wallet not found or archived");
         }
         
         // Validate transaction date is not before wallet creation date
@@ -2260,7 +2270,7 @@ router.put("/:id",
       const baseCurrency = user?.base_currency || 'USD';
       
       return res.status(400).json({ 
-        error: `This transaction would exceed the maximum allowed wallet balance of ${formatMaxNetWorth(baseCurrency)}` 
+        error: `This transaction would exceed the maximum allowed wallet balance of ${formatMaxLiquidity(baseCurrency)}` 
       });
     }
     

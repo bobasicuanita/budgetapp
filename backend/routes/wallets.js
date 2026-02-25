@@ -6,11 +6,11 @@ import * as currencies from '@dinero.js/currencies';
 const router = express.Router();
 
 /**
- * Get maximum net worth for a currency as a string (to avoid floating point precision issues)
+ * Get maximum liquidity for a currency as a string (to avoid floating point precision issues)
  * @param {string} currencyCode - ISO 4217 currency code
- * @returns {string} Maximum net worth value as string
+ * @returns {string} Maximum liquidity value as string
  */
-function getMaxNetWorthString(currencyCode) {
+function getMaxLiquidityString(currencyCode) {
   const exponent = getCurrencyDecimals(currencyCode);
   
   if (exponent === 0) {
@@ -155,11 +155,11 @@ function getCurrencyDecimals(currencyCode) {
 }
 
 /**
- * Format max net worth for display with proper decimals
+ * Format max liquidity for display with proper decimals
  * Manually constructs the formatted string to avoid parseFloat precision loss
  */
-function formatMaxNetWorth(currencyCode) {
-  const maxValueStr = getMaxNetWorthString(currencyCode);
+function formatMaxLiquidity(currencyCode) {
+  const maxValueStr = getMaxLiquidityString(currencyCode);
   const decimals = getCurrencyDecimals(currencyCode);
   
   // Split into integer and decimal parts
@@ -258,7 +258,7 @@ router.get("/", authenticateToken, async (req, res) => {
           AND t.is_system = false
         ) as has_user_transactions
       FROM wallets w
-      WHERE w.user_id = ${userId} AND w.is_active = TRUE
+      WHERE w.user_id = ${userId} AND w.is_active = TRUE AND w.is_archived = FALSE
       ORDER BY w.created_at ASC
     `;
 
@@ -289,36 +289,113 @@ router.get("/", authenticateToken, async (req, res) => {
         acc[r.currency_code] = parseFloat(r.rate);
         return acc;
       }, {});
-      
-      console.log(`[Wallets] Using ${Object.keys(exchangeRates).length} exchange rates from ${exchangeRatesDate.toISOString().split('T')[0]}`);
-    } else {
-      console.warn('[Wallets] No exchange rates found in database. Using 1:1 conversion for all currencies.');
     }
 
-    // Calculate total net worth and add balance_in_base_currency to each wallet
-    // NOTE: ALL wallets count toward net worth (include_in_balance is for "available balance" feature)
-    let totalNetWorth = 0;
-    
-    const walletsWithConvertedBalances = wallets.map(wallet => {
+    // Calculate total liquidity and add balance_in_base_currency to each wallet
+    // NOTE: ALL wallets count toward liquidity (include_in_balance is for "available balance" feature)
+    let totalLiquidity = 0;
+    let availableForSpending = 0;
+    let excludedBalance = 0;
+
+    // Calculate last 30 days balance history for each wallet
+    const today = new Date();
+    const thirtyDaysAgo = new Date(today);
+    thirtyDaysAgo.setDate(today.getDate() - 30);
+
+    const walletsWithConvertedBalances = await Promise.all(wallets.map(async wallet => {
       const walletBalance = parseFloat(wallet.current_balance);
       const convertedBalance = convertCurrency(
-        walletBalance, 
-        wallet.currency, 
-        baseCurrency, 
+        walletBalance,
+        wallet.currency,
+        baseCurrency,
         exchangeRates
       );
+
+      totalLiquidity += convertedBalance;
       
-      totalNetWorth += convertedBalance;
+      // Calculate available for spending (include_in_balance = true)
+      if (wallet.include_in_balance) {
+        availableForSpending += convertedBalance;
+      } else {
+        // Calculate excluded balance (include_in_balance = false)
+        excludedBalance += convertedBalance;
+      }
+
+      // Get all transactions for this wallet in the last 30 days
+      // Exclude initial_balance system transaction to avoid double-counting starting_balance
+      // Include both: wallet_id (outgoing/expenses/income) AND to_wallet_id (incoming transfers)
+      // For incoming transfers (to_wallet_id), flip the amount sign to positive
+      const transactions = await sql`
+        SELECT 
+          date,
+          CASE 
+            WHEN to_wallet_id = ${wallet.id} THEN amount
+            WHEN wallet_id = ${wallet.id} THEN amount
+          END as amount
+        FROM transactions
+        WHERE (wallet_id = ${wallet.id} OR to_wallet_id = ${wallet.id})
+          AND date >= ${thirtyDaysAgo.toISOString().split('T')[0]}
+          AND date <= ${today.toISOString().split('T')[0]}
+          AND status = 'actual'
+          AND system_type IS DISTINCT FROM 'initial_balance'
+        ORDER BY date ASC, created_at ASC
+      `;
+
+      // Calculate daily balance for last 30 days
+      const balanceHistory = [];
+      let runningBalance = parseFloat(wallet.starting_balance);
       
+      // Get all transactions before 30 days ago to calculate the starting point
+      // Exclude initial_balance system transaction to avoid double-counting starting_balance
+      // Include both: wallet_id (outgoing/expenses/income) AND to_wallet_id (incoming transfers)
+      // For incoming transfers (to_wallet_id), flip the amount sign to positive
+      const [priorBalance] = await sql`
+        SELECT COALESCE(
+          SUM(
+            CASE 
+              WHEN to_wallet_id = ${wallet.id} THEN amount
+              WHEN wallet_id = ${wallet.id} THEN amount
+            END
+          ), 0) as total
+        FROM transactions
+        WHERE (wallet_id = ${wallet.id} OR to_wallet_id = ${wallet.id})
+          AND date < ${thirtyDaysAgo.toISOString().split('T')[0]}
+          AND status = 'actual'
+          AND system_type IS DISTINCT FROM 'initial_balance'
+      `;
+      
+      runningBalance += parseFloat(priorBalance.total);
+
+      // Build daily balances
+      for (let i = 0; i < 30; i++) {
+        const currentDate = new Date(thirtyDaysAgo);
+        currentDate.setDate(thirtyDaysAgo.getDate() + i);
+        const dateStr = currentDate.toISOString().split('T')[0];
+        
+        // Add all transactions for this date
+        const dayTransactions = transactions.filter(t => 
+          t.date.toISOString().split('T')[0] === dateStr
+        );
+        
+        for (const txn of dayTransactions) {
+          runningBalance += parseFloat(txn.amount);
+        }
+        
+        balanceHistory.push(runningBalance);
+      }
+
       return {
         ...wallet,
-        balance_in_base_currency: convertedBalance
+        balance_in_base_currency: convertedBalance,
+        balance_history: balanceHistory
       };
-    });
+    }));
 
     res.json({
       wallets: walletsWithConvertedBalances,
-      totalNetWorth,
+      totalLiquidity,
+      availableForSpending,
+      excludedBalance,
       baseCurrency,
       exchangeRatesDate: exchangeRatesDate ? exchangeRatesDate.toISOString().split('T')[0] : null
     });
@@ -363,17 +440,17 @@ router.post("/", authenticateToken, async (req, res) => {
     const [user] = await sql`SELECT base_currency FROM users WHERE id = ${userId}`;
     const walletCurrency = currency || user.base_currency || 'EUR';
 
-    // Check if adding this wallet would exceed total net worth limit
-    // NOTE: ALL wallets count toward net worth, regardless of "include_in_balance" setting
-    // "include_in_balance" only affects "available balance" for spending (future feature)
-    const MAX_TOTAL_NET_WORTH_STR = getMaxNetWorthString(user.base_currency);
+    // Check if adding this wallet would exceed total liquidity limit
+    // NOTE: ALL wallets count toward liquidity, regardless of "include_in_balance" setting
+    // "include_in_balance" only affects "available balance" for spending
+    const MAX_TOTAL_LIQUIDITY_STR = getMaxLiquidityString(user.base_currency);
 
     if (startingBalance > 0) {
-      // Get all existing wallets (ALL wallets count toward net worth)
+      // Get all existing wallets (ALL wallets count toward liquidity)
       const existingWallets = await sql`
         SELECT currency, current_balance
         FROM wallets
-        WHERE user_id = ${userId}
+        WHERE user_id = ${userId} AND is_archived = FALSE
       `;
       
       // Get exchange rates
@@ -393,32 +470,35 @@ router.post("/", authenticateToken, async (req, res) => {
         `;
         exchangeRates = rates.reduce((acc, r) => {
           acc[r.currency_code] = parseFloat(r.rate);
-          return acc;
+          return acc; 
         }, {});
       }
       
-      // Calculate current net worth (ALL wallets, not just those included in available balance)
+      // Calculate current liquidity (ALL wallets, not just those included in available balance)
       const baseDecimals = getCurrencyDecimals(user.base_currency);
-      const currentNetWorth = existingWallets.reduce((sum, wallet) => {
+      const currentLiquidityNum = existingWallets.reduce((sum, wallet) => {
         const balance = parseFloat(wallet.current_balance);
         const converted = convertCurrency(balance, wallet.currency, user.base_currency, exchangeRates);
         return sum + converted;
       }, 0);
       
+      // Convert to string with proper decimals to preserve precision
+      const currentLiquidity = currentLiquidityNum.toFixed(baseDecimals);
+      
       // Convert new wallet balance to base currency
       const newWalletInBaseCurrency = convertCurrency(startingBalance, walletCurrency, user.base_currency, exchangeRates);
       
       // Keep as string to preserve precision for very large numbers
-      const projectedNetWorthStr = (currentNetWorth + newWalletInBaseCurrency).toFixed(baseDecimals);
+      const projectedLiquidityStr = (parseFloat(currentLiquidity) + newWalletInBaseCurrency).toFixed(baseDecimals);
       
       // Compare using string comparison to avoid floating point precision loss
-      if (exceedsValueString(projectedNetWorthStr, MAX_TOTAL_NET_WORTH_STR)) {
+      if (exceedsValueString(projectedLiquidityStr, MAX_TOTAL_LIQUIDITY_STR)) {
         let formattedMax;
         const walletDecimals = getCurrencyDecimals(walletCurrency);
         
         if (walletCurrency === user.base_currency) {
           // Same currency - use string subtraction to preserve precision
-          const maxAllowedStr = subtractFromMaxString(MAX_TOTAL_NET_WORTH_STR, currentNetWorth, walletDecimals);
+          const maxAllowedStr = subtractFromMaxString(MAX_TOTAL_LIQUIDITY_STR, currentLiquidity, walletDecimals);
           
           // Format with thousands separators
           const parts = maxAllowedStr.split('.');
@@ -426,7 +506,7 @@ router.post("/", authenticateToken, async (req, res) => {
           formattedMax = walletDecimals > 0 && parts[1] ? `${formattedInteger}.${parts[1]}` : formattedInteger;
         } else {
           // Different currency - need to convert
-          const maxAllowedForWallet = subtractFromMax(MAX_TOTAL_NET_WORTH_STR, currentNetWorth, walletDecimals);
+          const maxAllowedForWallet = subtractFromMax(MAX_TOTAL_LIQUIDITY_STR, currentLiquidity, walletDecimals);
           const maxInWalletCurrency = convertCurrency(parseFloat(maxAllowedForWallet), user.base_currency, walletCurrency, exchangeRates);
           formattedMax = new Intl.NumberFormat('en-US', {
             minimumFractionDigits: walletDecimals,
@@ -435,7 +515,7 @@ router.post("/", authenticateToken, async (req, res) => {
         }
 
         return res.status(400).json({
-          error: `Adding this wallet would exceed the maximum total net worth of ${formatMaxNetWorth(user.base_currency)} ${user.base_currency}. Maximum allowed balance for this wallet: ${formattedMax} ${walletCurrency}`
+          error: `Adding this wallet would exceed the maximum total liquidity of ${formatMaxLiquidity(user.base_currency)} ${user.base_currency}. Maximum allowed balance for this wallet: ${formattedMax} ${walletCurrency}`
         });
       }
     }
@@ -543,11 +623,240 @@ router.post("/", authenticateToken, async (req, res) => {
       const baseCurrency = user?.base_currency || 'USD';
       
       return res.status(400).json({ 
-        error: `Starting balance exceeds the maximum allowed wallet balance of ${formatMaxNetWorth(baseCurrency)}` 
+        error: `Starting balance exceeds the maximum allowed wallet balance of ${formatMaxLiquidity(baseCurrency)}` 
       });
     }
     
     res.status(500).json({ error: "Failed to create wallet" });
+  }
+});
+
+/**
+ * GET /api/wallets/:id
+ * Get single wallet by ID (includes archived wallets)
+ */
+router.get("/:id", authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const userId = req.user.userId;
+
+  try {
+    const [wallet] = await sql`
+      SELECT 
+        w.id,
+        w.name,
+        w.type,
+        w.currency,
+        w.starting_balance,
+        w.current_balance,
+        w.icon,
+        w.color,
+        w.include_in_balance,
+        w.is_active,
+        w.is_archived,
+        w.created_at,
+        w.updated_at,
+        COUNT(t.id) as transaction_count,
+        EXISTS(
+          SELECT 1 FROM transactions t2
+          WHERE t2.wallet_id = w.id
+          AND t2.is_system = false
+        ) as has_user_transactions
+      FROM wallets w
+      LEFT JOIN transactions t ON w.id = t.wallet_id OR w.id = t.to_wallet_id
+      WHERE w.id = ${id} AND w.user_id = ${userId}
+      GROUP BY w.id
+    `;
+
+    if (!wallet) {
+      return res.status(404).json({ error: "Wallet not found" });
+    }
+
+    // Get last activity date (most recent transaction date)
+    const [lastActivity] = await sql`
+      SELECT MAX(date) as last_activity_date
+      FROM transactions
+      WHERE (wallet_id = ${wallet.id} OR to_wallet_id = ${wallet.id})
+        AND is_system = false
+        AND status = 'actual'
+    `;
+
+    // Get user's base currency for conversion
+    const [user] = await sql`
+      SELECT base_currency FROM users WHERE id = ${userId}
+    `;
+    const baseCurrency = user?.base_currency || 'USD';
+
+    // Get latest exchange rates for conversion
+    const [latestDate] = await sql`
+      SELECT DISTINCT date
+      FROM exchange_rates
+      ORDER BY date DESC
+      LIMIT 1
+    `;
+
+    let exchangeRates = {};
+    if (latestDate) {
+      const rates = await sql`
+        SELECT currency_code, rate
+        FROM exchange_rates
+        WHERE date = ${latestDate.date}::date
+      `;
+      exchangeRates = rates.reduce((acc, r) => {
+        acc[r.currency_code] = parseFloat(r.rate);
+        return acc;
+      }, {});
+    }
+
+    // Convert wallet balance to base currency
+    const walletBalance = parseFloat(wallet.current_balance);
+    const convertedBalance = convertCurrency(
+      walletBalance,
+      wallet.currency,
+      baseCurrency,
+      exchangeRates
+    );
+
+    // Calculate last 30 days balance history
+    const today = new Date();
+    const thirtyDaysAgo = new Date(today);
+    thirtyDaysAgo.setDate(today.getDate() - 30);
+    
+    const walletCreatedAt = new Date(wallet.created_at);
+    const walletCreatedDateStr = walletCreatedAt.toISOString().split('T')[0];
+    
+    // Get all transactions for this wallet in the last 30 days
+    // Exclude initial_balance system transaction to avoid double-counting starting_balance
+    // Include both: wallet_id (outgoing/expenses/income) AND to_wallet_id (incoming transfers)
+    // For incoming transfers (to_wallet_id), flip the amount sign to positive
+    const transactions = await sql`
+      SELECT 
+        date,
+        CASE 
+          WHEN to_wallet_id = ${wallet.id} THEN amount
+          WHEN wallet_id = ${wallet.id} THEN amount
+        END as amount,
+        type, 
+        description, 
+        system_type, 
+        is_system
+      FROM transactions
+      WHERE (wallet_id = ${wallet.id} OR to_wallet_id = ${wallet.id})
+        AND date >= ${thirtyDaysAgo.toISOString().split('T')[0]}
+        AND date <= ${today.toISOString().split('T')[0]}
+        AND status = 'actual'
+        AND system_type IS DISTINCT FROM 'initial_balance'
+      ORDER BY date ASC, created_at ASC
+    `;
+
+    const balanceHistory = [];
+    let runningBalance = parseFloat(wallet.starting_balance);
+    
+    // Get all transactions before 30 days ago to calculate the starting point
+    // Exclude initial_balance system transaction to avoid double-counting starting_balance
+    // Include both: wallet_id (outgoing/expenses/income) AND to_wallet_id (incoming transfers)
+    // For incoming transfers (to_wallet_id), flip the amount sign to positive
+    const [priorBalance] = await sql`
+      SELECT COALESCE(
+        SUM(
+          CASE 
+            WHEN to_wallet_id = ${wallet.id} THEN amount
+            WHEN wallet_id = ${wallet.id} THEN amount
+          END
+        ), 0) as total
+      FROM transactions
+      WHERE (wallet_id = ${wallet.id} OR to_wallet_id = ${wallet.id})
+        AND date < ${thirtyDaysAgo.toISOString().split('T')[0]}
+        AND status = 'actual'
+        AND system_type IS DISTINCT FROM 'initial_balance'
+    `;
+    
+    runningBalance += parseFloat(priorBalance.total);
+
+    // Build daily balances for all 31 days (including today)
+    for (let i = 0; i <= 30; i++) {
+      const currentDate = new Date(thirtyDaysAgo);
+      currentDate.setDate(thirtyDaysAgo.getDate() + i);
+      const dateStr = currentDate.toISOString().split('T')[0];
+      
+      // Check if this date is before wallet creation
+      if (dateStr < walletCreatedDateStr) {
+        // Add null for dates before wallet existed
+        balanceHistory.push({
+          date: dateStr,
+          balance: null
+        });
+      } else {
+        // Add all transactions for this date
+        const dayTransactions = transactions.filter(t => 
+          t.date.toISOString().split('T')[0] === dateStr
+        );
+        
+        for (const txn of dayTransactions) {
+          runningBalance += parseFloat(txn.amount);
+        }
+        
+        balanceHistory.push({
+          date: dateStr,
+          balance: runningBalance
+        });
+      }
+    }
+
+    // Calculate balance breakdown (all-time totals)
+    const breakdownResult = await sql`
+      SELECT 
+        SUM(CASE 
+          WHEN type = 'income' AND wallet_id = ${wallet.id} 
+            AND system_type IS DISTINCT FROM 'initial_balance' 
+            AND system_type IS DISTINCT FROM 'balance_adjustment'
+          THEN amount 
+          ELSE 0 
+        END) as total_income,
+        SUM(CASE 
+          WHEN type = 'expense' AND wallet_id = ${wallet.id}
+            AND system_type IS DISTINCT FROM 'balance_adjustment'
+          THEN ABS(amount)
+          ELSE 0 
+        END) as total_expenses,
+        SUM(CASE 
+          WHEN type = 'transfer' AND wallet_id = ${wallet.id} AND amount > 0
+          THEN amount 
+          ELSE 0 
+        END) as total_transfers_in,
+        SUM(CASE 
+          WHEN type = 'transfer' AND wallet_id = ${wallet.id} AND amount < 0
+          THEN ABS(amount)
+          ELSE 0 
+        END) as total_transfers_out,
+        SUM(CASE 
+          WHEN system_type = 'balance_adjustment' AND wallet_id = ${wallet.id}
+          THEN amount
+          ELSE 0
+        END) as total_adjustments
+      FROM transactions
+      WHERE wallet_id = ${wallet.id}
+        AND status = 'actual'
+    `;
+
+    const breakdown = breakdownResult[0] || {};
+
+    res.json({
+      ...wallet,
+      balance_in_base_currency: convertedBalance,
+      balance_history: balanceHistory,
+      last_activity_date: lastActivity?.last_activity_date || null,
+      breakdown: {
+        total_income: parseFloat(breakdown.total_income) || 0,
+        total_expenses: parseFloat(breakdown.total_expenses) || 0,
+        total_transfers_in: parseFloat(breakdown.total_transfers_in) || 0,
+        total_transfers_out: parseFloat(breakdown.total_transfers_out) || 0,
+        total_adjustments: parseFloat(breakdown.total_adjustments) || 0
+      }
+    });
+
+  } catch (error) {
+    console.error("Error fetching wallet:", error);
+    res.status(500).json({ error: "Failed to fetch wallet" });
   }
 });
 
@@ -557,21 +866,21 @@ router.post("/", authenticateToken, async (req, res) => {
  */
 router.put("/:id", authenticateToken, async (req, res) => {
   const { id } = req.params;
-  const { name, type, currency, starting_balance, include_in_balance } = req.body;
+  const { name, type, currency, starting_balance, icon, include_in_balance } = req.body;
   const userId = req.user.userId;
 
   try {
     // Get user's base currency (needed for error messages)
     const [user] = await sql`SELECT base_currency FROM users WHERE id = ${userId}`;
     
-    // Verify wallet belongs to user
+    // Verify wallet belongs to user and is not archived
     const [existingWallet] = await sql`
       SELECT * FROM wallets 
-      WHERE id = ${id} AND user_id = ${userId}
+      WHERE id = ${id} AND user_id = ${userId} AND is_archived = FALSE
     `;
 
     if (!existingWallet) {
-      return res.status(404).json({ error: "Wallet not found" });
+      return res.status(404).json({ error: "Wallet not found or archived" });
     }
 
     // Validate wallet type (currency-based accounts only)
@@ -595,13 +904,45 @@ router.put("/:id", authenticateToken, async (req, res) => {
     const updates = {};
     if (name !== undefined) updates.name = name;
     if (type !== undefined) {
+      // Check if type is being changed and if wallet has transactions
+      if (type !== existingWallet.type) {
+        const [transactionCount] = await sql`
+          SELECT COUNT(*) as count
+          FROM transactions
+          WHERE wallet_id = ${id}
+        `;
+
+        if (parseInt(transactionCount.count) > 0) {
+          return res.status(400).json({
+            error: "Wallet type can't be changed after transactions are added. This keeps your transaction history accurate."
+          });
+        }
+      }
       updates.type = type;
-      // Update icon and color based on new type
-      const { icon, color } = getWalletDefaults(type);
-      updates.icon = icon;
+      // Update color based on new type
+      const { color } = getWalletDefaults(type);
       updates.color = color;
     }
-    if (currency !== undefined) updates.currency = currency.toUpperCase();
+    if (icon !== undefined) {
+      updates.icon = icon;
+    }
+    if (currency !== undefined) {
+      // Check if currency is being changed and if wallet has transactions
+      if (currency.toUpperCase() !== existingWallet.currency) {
+        const [transactionCount] = await sql`
+          SELECT COUNT(*) as count
+          FROM transactions
+          WHERE wallet_id = ${id}
+        `;
+
+        if (parseInt(transactionCount.count) > 0) {
+          return res.status(400).json({
+            error: "Currency cannot be changed after transactions exist. Create a new wallet if you need a different currency."
+          });
+        }
+      }
+      updates.currency = currency.toUpperCase();
+    }
     if (include_in_balance !== undefined) updates.include_in_balance = include_in_balance;
     
     // Handle starting_balance changes
@@ -625,9 +966,9 @@ router.put("/:id", authenticateToken, async (req, res) => {
       updates.starting_balance = starting_balance;
     }
 
-    // Check if balance change would exceed net worth limit
-    // NOTE: ALL wallets count toward net worth, regardless of "include_in_balance" setting
-    const MAX_TOTAL_NET_WORTH_STR = getMaxNetWorthString(user.base_currency);
+    // Check if balance change would exceed liquidity limit
+    // NOTE: ALL wallets count toward liquidity, regardless of "include_in_balance" setting
+    const MAX_TOTAL_LIQUIDITY_STR = getMaxLiquidityString(user.base_currency);
 
     if (starting_balance !== undefined && starting_balance !== existingWallet.starting_balance) {
       // Calculate balance difference
@@ -637,11 +978,11 @@ router.put("/:id", authenticateToken, async (req, res) => {
       if (balanceDiff > 0) {
         const walletCurrency = currency !== undefined ? currency.toUpperCase() : existingWallet.currency;
         
-        // Get all existing wallets (ALL wallets count toward net worth)
+        // Get all existing wallets (ALL wallets count toward liquidity)
         const allWallets = await sql`
           SELECT currency, current_balance
           FROM wallets
-          WHERE user_id = ${userId}
+          WHERE user_id = ${userId} AND is_archived = FALSE
         `;
         
         // Get exchange rates
@@ -665,29 +1006,30 @@ router.put("/:id", authenticateToken, async (req, res) => {
           }, {});
         }
         
-        // Calculate current net worth (ALL wallets)
+        // Calculate current liquidity (ALL wallets)
         const baseDecimals = getCurrencyDecimals(user.base_currency);
-        const currentNetWorth = allWallets.reduce((sum, wallet) => {
+        const currentLiquidityNum = allWallets.reduce((sum, wallet) => {
           const balance = parseFloat(wallet.current_balance);
           const converted = convertCurrency(balance, wallet.currency, user.base_currency, exchangeRates);
           return sum + converted;
         }, 0);
         
+        // Convert to string with proper decimals to preserve precision
+        const currentLiquidity = currentLiquidityNum.toFixed(baseDecimals);
+        
         // Convert balance difference to base currency
         const balanceDiffInBaseCurrency = convertCurrency(balanceDiff, walletCurrency, user.base_currency, exchangeRates);
         
         // Keep as string to preserve precision
-        const projectedNetWorthStr = (currentNetWorth + balanceDiffInBaseCurrency).toFixed(baseDecimals);
+        const projectedLiquidityStr = (parseFloat(currentLiquidity) + balanceDiffInBaseCurrency).toFixed(baseDecimals);
         
-        console.log(`[Wallet UPDATE] Current net worth: ${currentNetWorth.toFixed(baseDecimals)}, Projected: ${projectedNetWorthStr}, Max: ${MAX_TOTAL_NET_WORTH_STR}`);
-        
-        if (exceedsValueString(projectedNetWorthStr, MAX_TOTAL_NET_WORTH_STR)) {
+        if (exceedsValueString(projectedLiquidityStr, MAX_TOTAL_LIQUIDITY_STR)) {
           let formattedMax;
           const walletDecimals = getCurrencyDecimals(walletCurrency);
           
           if (walletCurrency === user.base_currency) {
             // Same currency - use string subtraction and addition
-            const maxAllowedIncreaseStr = subtractFromMaxString(MAX_TOTAL_NET_WORTH_STR, currentNetWorth, walletDecimals);
+            const maxAllowedIncreaseStr = subtractFromMaxString(MAX_TOTAL_LIQUIDITY_STR, currentLiquidity, walletDecimals);
             const maxAllowedBalance = existingWallet.starting_balance + parseFloat(maxAllowedIncreaseStr);
             
             const maxStr = maxAllowedBalance.toFixed(walletDecimals);
@@ -696,7 +1038,7 @@ router.put("/:id", authenticateToken, async (req, res) => {
             formattedMax = walletDecimals > 0 && parts[1] ? `${formattedInteger}.${parts[1]}` : formattedInteger;
           } else {
             // Different currency - convert
-            const maxAllowedIncreaseStr = subtractFromMaxString(MAX_TOTAL_NET_WORTH_STR, currentNetWorth, getCurrencyDecimals(user.base_currency));
+            const maxAllowedIncreaseStr = subtractFromMaxString(MAX_TOTAL_LIQUIDITY_STR, currentLiquidity, getCurrencyDecimals(user.base_currency));
             const maxInWalletCurrency = convertCurrency(parseFloat(maxAllowedIncreaseStr), user.base_currency, walletCurrency, exchangeRates);
             const maxAllowedBalance = existingWallet.starting_balance + maxInWalletCurrency;
             formattedMax = new Intl.NumberFormat('en-US', {
@@ -706,7 +1048,7 @@ router.put("/:id", authenticateToken, async (req, res) => {
           }
 
           return res.status(400).json({
-            error: `Updating this wallet would exceed the maximum total net worth of ${formatMaxNetWorth(user.base_currency)} ${user.base_currency}. Maximum allowed balance: ${formattedMax} ${walletCurrency}`
+            error: `Updating this wallet would exceed the maximum total liquidity of ${formatMaxLiquidity(user.base_currency)} ${user.base_currency}. Maximum allowed balance: ${formattedMax} ${walletCurrency}`
           });
         }
       }
@@ -845,7 +1187,7 @@ router.put("/:id", authenticateToken, async (req, res) => {
       const baseCurrency = user?.base_currency || 'USD';
       
       return res.status(400).json({ 
-        error: `Balance exceeds the maximum allowed wallet balance of ${formatMaxNetWorth(baseCurrency)}` 
+        error: `Balance exceeds the maximum allowed wallet balance of ${formatMaxLiquidity(baseCurrency)}` 
       });
     }
     
@@ -863,14 +1205,14 @@ router.post("/:id/adjust-balance", authenticateToken, async (req, res) => {
   const userId = req.user.userId;
 
   try {
-    // Verify wallet belongs to user
+    // Verify wallet belongs to user and is not archived
     const [wallet] = await sql`
       SELECT * FROM wallets 
-      WHERE id = ${id} AND user_id = ${userId}
+      WHERE id = ${id} AND user_id = ${userId} AND is_archived = FALSE
     `;
 
     if (!wallet) {
-      return res.status(404).json({ error: "Wallet not found" });
+      return res.status(404).json({ error: "Wallet not found or archived" });
     }
 
     // Validate target_balance
@@ -910,7 +1252,7 @@ router.post("/:id/adjust-balance", authenticateToken, async (req, res) => {
       return res.status(400).json({ error: "Target balance is the same as current balance" });
     }
 
-    // Check if balance adjustment would exceed net worth limit (only for positive adjustments)
+    // Check if balance adjustment would exceed liquidity limit (only for positive adjustments)
     if (adjustmentAmount > 0) {
       // Get user's base currency
       const [user] = await sql`
@@ -919,13 +1261,13 @@ router.post("/:id/adjust-balance", authenticateToken, async (req, res) => {
         WHERE id = ${userId}
       `;
       
-      const MAX_TOTAL_NET_WORTH_STR = getMaxNetWorthString(user.base_currency);
+      const MAX_TOTAL_LIQUIDITY_STR = getMaxLiquidityString(user.base_currency);
       
       // Get all existing wallets
       const allWallets = await sql`
         SELECT currency, current_balance
         FROM wallets
-        WHERE user_id = ${userId}
+        WHERE user_id = ${userId} AND is_archived = FALSE
       `;
       
       // Get exchange rates
@@ -949,29 +1291,30 @@ router.post("/:id/adjust-balance", authenticateToken, async (req, res) => {
         }, {});
       }
       
-      // Calculate current net worth
+      // Calculate current liquidity
       const baseDecimals = getCurrencyDecimals(user.base_currency);
-      const currentNetWorth = allWallets.reduce((sum, w) => {
+      const currentLiquidityNum = allWallets.reduce((sum, w) => {
         const balance = parseFloat(w.current_balance);
         const converted = convertCurrency(balance, w.currency, user.base_currency, exchangeRates);
         return sum + converted;
       }, 0);
       
+      // Convert to string with proper decimals to preserve precision
+      const currentLiquidity = currentLiquidityNum.toFixed(baseDecimals);
+      
       // Convert adjustment amount to base currency
       const adjustmentInBaseCurrency = convertCurrency(adjustmentAmount, wallet.currency, user.base_currency, exchangeRates);
       
       // Keep as string to preserve precision
-      const projectedNetWorthStr = (currentNetWorth + adjustmentInBaseCurrency).toFixed(baseDecimals);
+      const projectedLiquidityStr = (parseFloat(currentLiquidity) + adjustmentInBaseCurrency).toFixed(baseDecimals);
       
-      console.log(`[Balance Adjustment] Current net worth: ${currentNetWorth.toFixed(baseDecimals)}, Projected: ${projectedNetWorthStr}, Max: ${MAX_TOTAL_NET_WORTH_STR}`);
-      
-      if (exceedsValueString(projectedNetWorthStr, MAX_TOTAL_NET_WORTH_STR)) {
+      if (exceedsValueString(projectedLiquidityStr, MAX_TOTAL_LIQUIDITY_STR)) {
         let formattedMax;
         const walletDecimals = getCurrencyDecimals(wallet.currency);
         
         if (wallet.currency === user.base_currency) {
           // Same currency - use string subtraction
-          const availableStr = subtractFromMaxString(MAX_TOTAL_NET_WORTH_STR, currentNetWorth, walletDecimals);
+          const availableStr = subtractFromMaxString(MAX_TOTAL_LIQUIDITY_STR, currentLiquidity, walletDecimals);
           const maxAllowedBalance = currentBalance + parseFloat(availableStr);
           
           const maxStr = maxAllowedBalance.toFixed(walletDecimals);
@@ -980,7 +1323,7 @@ router.post("/:id/adjust-balance", authenticateToken, async (req, res) => {
           formattedMax = walletDecimals > 0 && parts[1] ? `${formattedInteger}.${parts[1]}` : formattedInteger;
         } else {
           // Different currency - convert
-          const availableStr = subtractFromMaxString(MAX_TOTAL_NET_WORTH_STR, currentNetWorth, getCurrencyDecimals(user.base_currency));
+          const availableStr = subtractFromMaxString(MAX_TOTAL_LIQUIDITY_STR, currentLiquidity, getCurrencyDecimals(user.base_currency));
           const maxInWalletCurrency = convertCurrency(parseFloat(availableStr), user.base_currency, wallet.currency, exchangeRates);
           const maxAllowedBalance = currentBalance + maxInWalletCurrency;
           formattedMax = new Intl.NumberFormat('en-US', {
@@ -990,7 +1333,7 @@ router.post("/:id/adjust-balance", authenticateToken, async (req, res) => {
         }
 
         return res.status(400).json({
-          error: `This adjustment would exceed the maximum total net worth of ${formatMaxNetWorth(user.base_currency)} ${user.base_currency}. Maximum allowed balance: ${formattedMax} ${wallet.currency}`
+          error: `This adjustment would exceed the maximum total liquidity of ${formatMaxLiquidity(user.base_currency)} ${user.base_currency}. Maximum allowed balance: ${formattedMax} ${wallet.currency}`
         });
       }
     }
@@ -1065,6 +1408,112 @@ router.post("/:id/adjust-balance", authenticateToken, async (req, res) => {
   } catch (error) {
     console.error("Error adjusting balance:", error);
     res.status(500).json({ error: "Failed to adjust balance" });
+  }
+});
+
+// Archive wallet
+router.patch("/:id/archive", authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const userId = req.user.userId;
+
+  try {
+    // Verify wallet belongs to user
+    const [wallet] = await sql`
+      SELECT id, name
+      FROM wallets
+      WHERE id = ${id} AND user_id = ${userId}
+    `;
+
+    if (!wallet) {
+      return res.status(404).json({ error: "Wallet not found" });
+    }
+
+    // Archive the wallet
+    await sql`
+      UPDATE wallets
+      SET is_archived = TRUE, updated_at = NOW()
+      WHERE id = ${id} AND user_id = ${userId}
+    `;
+
+    res.json({ 
+      message: "Wallet archived successfully",
+      walletId: id 
+    });
+
+  } catch (error) {
+    console.error("Error archiving wallet:", error);
+    res.status(500).json({ error: "Failed to archive wallet" });
+  }
+});
+
+// Get archived wallets
+router.get("/archived/list", authenticateToken, async (req, res) => {
+  const userId = req.user.userId;
+
+  try {
+    const archivedWallets = await sql`
+      SELECT 
+        w.id,
+        w.name,
+        w.type,
+        w.currency,
+        w.current_balance,
+        w.icon,
+        w.color,
+        w.created_at,
+        w.updated_at
+      FROM wallets w
+      WHERE w.user_id = ${userId} AND w.is_archived = TRUE
+      ORDER BY w.updated_at DESC
+    `;
+
+    res.json({ 
+      wallets: archivedWallets,
+      count: archivedWallets.length
+    });
+
+  } catch (error) {
+    console.error("Error fetching archived wallets:", error);
+    res.status(500).json({ error: "Failed to fetch archived wallets" });
+  }
+});
+
+// Restore archived wallet
+router.patch("/:id/restore", authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const userId = req.user.userId;
+
+  try {
+    // Verify wallet belongs to user and is archived
+    const [wallet] = await sql`
+      SELECT id, name, is_archived
+      FROM wallets
+      WHERE id = ${id} AND user_id = ${userId}
+    `;
+
+    if (!wallet) {
+      return res.status(404).json({ error: "Wallet not found" });
+    }
+
+    if (!wallet.is_archived) {
+      return res.status(400).json({ error: "Wallet is not archived" });
+    }
+
+    // Restore the wallet
+    await sql`
+      UPDATE wallets
+      SET is_archived = FALSE, updated_at = NOW()
+      WHERE id = ${id} AND user_id = ${userId}
+    `;
+
+    res.json({ 
+      message: "Wallet restored successfully",
+      walletId: id 
+    });
+
+  } catch (error) {
+    console.error("Error restoring wallet:", error);
+    res.status(500).json({ error: "Failed to restore wallet" });
   }
 });
 

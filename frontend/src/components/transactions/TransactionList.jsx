@@ -14,24 +14,33 @@ const TransactionItem = memo(({ transaction, isLastItem, onEdit, onDelete, baseC
             {/* Checkbox for bulk delete - disabled for system transactions */}
             {bulkDeleteMode && (
               <Grid.Col span={0.15}>
-                <Checkbox
-                  checked={isSelected}
-                  onChange={() => onToggle(transaction.id)}
-                  size="xs"
-                  color="blue.9"
-                  onClick={(e) => e.stopPropagation()}
-                  disabled={transaction.is_system}
-                />
+                <Tooltip
+                  label="Balance adjustments can't be deleted"
+                  disabled={!transaction.is_system}
+                  withArrow
+                  position="top"
+                >
+                  <Checkbox
+                    checked={isSelected}
+                    onChange={() => onToggle(transaction.id)}
+                    size="xs"
+                    color="blue.9"
+                    onClick={(e) => e.stopPropagation()}
+                    disabled={transaction.is_system}
+                  />
+                </Tooltip>
               </Grid.Col>
             )}
             
             {/* Merchant/Counterparty/Transfer Info */}
-            <Grid.Col span={bulkDeleteMode ? 2.95 : 3}>
-              <Text 
-                size="sm" 
+            <Grid.Col span={bulkDeleteMode ? 2.95 : 3} style={{ paddingLeft: bulkDeleteMode ? '12px' : undefined }}>
+              <Text
+                size="sm"
                 fw={500} 
                 style={{ 
-                  color: transaction.type === 'transfer'
+                  color: transaction.is_system
+                    ? 'var(--gray-12)'
+                    : transaction.type === 'transfer'
                     ? 'var(--gray-12)'
                     : transaction.type === 'income' 
                     ? (transaction.counterparty ? 'var(--gray-12)' : 'var(--gray-9)')
@@ -41,8 +50,8 @@ const TransactionItem = memo(({ transaction, isLastItem, onEdit, onDelete, baseC
                 {transaction.type === 'transfer' 
                   ? `From ${transaction.wallet_name} → To ${transaction.to_wallet_name}`
                   : transaction.type === 'income' 
-                  ? (transaction.counterparty || '[No source specified]')
-                  : (transaction.merchant || '[No merchant specified]')
+                  ? (transaction.is_system ? 'Balance Adjustment' : (transaction.counterparty || '[No source specified]'))
+                  : (transaction.is_system ? 'Balance Adjustment' : (transaction.merchant || '[No merchant specified]'))
                 }
               </Text>
             </Grid.Col>
@@ -314,7 +323,6 @@ const DateGroup = memo(({ group, onEdit, onDelete, baseCurrency, bulkDeleteMode,
         p="xs"
         style={{ 
           backgroundColor: 'var(--blue-3)',
-          borderRadius: '4px',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center'

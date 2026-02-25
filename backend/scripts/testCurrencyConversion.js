@@ -76,7 +76,7 @@ async function testCurrencyConversion() {
 
     console.log('\n🧮 Conversion Process:\n');
 
-    let totalNetWorth = 0;
+    let totalLiquidity = 0;
 
     wallets.forEach((wallet, index) => {
       let convertedBalance;
@@ -100,12 +100,12 @@ async function testCurrencyConversion() {
         }
       }
       
-      totalNetWorth += convertedBalance;
+      totalLiquidity += convertedBalance;
       console.log('');
     });
 
     console.log('─'.repeat(60));
-    console.log(`\n✅ Total Net Worth: ${totalNetWorth.toFixed(2)} ${baseCurrency}`);
+    console.log(`\n✅ Total Liquidity: ${totalLiquidity.toFixed(2)} ${baseCurrency}`);
     console.log('\n' + '─'.repeat(60));
 
     // Compare with old (wrong) calculation
@@ -114,9 +114,9 @@ async function testCurrencyConversion() {
     console.log(`   Simple sum: ${oldCalculation.toFixed(2)} (incorrect - mixed currencies!)`);
     
     console.log('\n📈 New Calculation (CORRECT):');
-    console.log(`   With conversion: ${totalNetWorth.toFixed(2)} ${baseCurrency}`);
+    console.log(`   With conversion: ${totalLiquidity.toFixed(2)} ${baseCurrency}`);
     
-    const difference = totalNetWorth - oldCalculation;
+    const difference = totalLiquidity - oldCalculation;
     console.log(`\n   Difference: ${difference > 0 ? '+' : ''}${difference.toFixed(2)} ${baseCurrency}`);
     console.log('─'.repeat(60));
 

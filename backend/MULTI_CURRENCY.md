@@ -55,7 +55,7 @@ Step 2: USD to GBP
   5,952.38 * 0.73 = 4,345.24 GBP
 ```
 
-## Net Worth Calculation
+## Liquidity Calculation
 
 ### Example Scenario
 ```
@@ -80,7 +80,7 @@ Exchange Rate: USDEUR = 0.84
 // Wallet 3: Euro Bank (EUR)
 5,000 EUR / 0.84 = 5,952.38 USD
 
-// Total Net Worth
+// Total Liquidity
 3,000 + 25,000 + 5,952.38 = 33,952.38 USD
 ```
 
@@ -101,22 +101,22 @@ Exchange Rate: USDEUR = 0.84
       ...
     }
   ],
-  "totalNetWorth": 33952.38,
+  "totalLiquidity": 33952.38,
   "baseCurrency": "USD",
   "exchangeRatesDate": "2026-02-18"
 }
 ```
 
 **Key Fields:**
-- `totalNetWorth`: Total of all wallets converted to base currency
+- `totalLiquidity`: Total of all wallets converted to base currency
 - `baseCurrency`: User's base currency for reporting
 - `exchangeRatesDate`: Date of exchange rates used for conversion
-- `include_in_balance`: Wallets with this set to `false` are excluded from net worth
+- `include_in_balance`: Wallets with this set to `false` are excluded from liquidity
 
 ## Important Notes
 
 ### Include in Balance Flag
-Wallets can be excluded from net worth calculation:
+Wallets can be excluded from liquidity calculation:
 ```javascript
 if (!wallet.include_in_balance) {
   return sum; // Skip this wallet
@@ -143,7 +143,7 @@ If no exchange rates are found in the database:
 
 ### Backend
 - **Currency Conversion Function**: `backend/routes/wallets.js` - `convertCurrency()`
-- **Net Worth Calculation**: `backend/routes/wallets.js` - `GET /api/wallets`
+- **Liquidity Calculation**: `backend/routes/wallets.js` - `GET /api/wallets`
 - **Exchange Rates Service**: `backend/services/exchangeRateService.js`
 
 ### Frontend
@@ -169,7 +169,7 @@ If no exchange rates are found in the database:
 ### Manual Testing
 ```javascript
 // Create test wallets with different currencies
-// Check that net worth calculation matches manual conversion
+// Check that liquidity calculation matches manual conversion
 ```
 
 ## Future Enhancements

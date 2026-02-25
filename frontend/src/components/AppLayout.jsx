@@ -83,7 +83,8 @@ function AppLayout({ children }) {
       styles={{
         main: {
           backgroundColor: 'var(--gray-3)',
-          paddingLeft: 220
+          paddingLeft: desktopOpened ? 220 : 70,
+          transition: 'padding-left 0.2s ease'
         },
         navbar: {
           backgroundColor: 'var(--gray-3)',
@@ -119,7 +120,8 @@ function AppLayout({ children }) {
                   color: 'var(--gray-12)', 
                   flexShrink: 0,
                   backgroundColor: 'white',
-                  boxShadow: 'var(--mantine-shadow-sm)'
+                  boxShadow: 'var(--mantine-shadow-sm)',
+                  marginTop: '4px'
                 }}
               >
                 {desktopOpened ? (
@@ -137,7 +139,7 @@ function AppLayout({ children }) {
                   opacity: desktopOpened ? 1 : 0,
                   width: desktopOpened ? 'auto' : 0,
                   overflow: 'hidden',
-                  transition: 'opacity 0.2s ease, width 0.2s ease'
+                  marginTop: '4px'
                 }}
               >
                 BudgetApp
@@ -147,7 +149,12 @@ function AppLayout({ children }) {
             {/* Navigation Items */}
             <Stack gap="xs">
               {navItems.map((item) => {
-                const isActive = location.pathname === item.path;
+                // Check if current path matches the nav item
+                // For /wallets, also match /wallets/:id (detail pages)
+                const isActive = item.path === '/wallets' 
+                  ? location.pathname.startsWith('/wallets')
+                  : location.pathname === item.path;
+                  
                 return (
                   <NavLink
                     key={item.path}

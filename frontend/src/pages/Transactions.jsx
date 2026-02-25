@@ -10,7 +10,11 @@ import {
   IconDownload, 
   IconCash,
   IconDotsVertical,
-  IconTrash
+  IconTrash,
+  IconReceipt,
+  IconTrendingUp,
+  IconTrendingDown,
+  IconArrowsExchange
 } from '@tabler/icons-react';
 import dayjs from 'dayjs';
 import { v4 as uuidv4 } from 'uuid';
@@ -31,6 +35,7 @@ import {
   TransactionList,
   DeleteConfirmationModal 
 } from '../components/transactions';
+import { ArchivedWalletsManager } from '../components/wallets';
 import '../styles/inputs.css';
 function Transactions() {
   const createRipple = useRipple();
@@ -677,12 +682,12 @@ function Transactions() {
 
   // Check if amount would cause numeric overflow
   const amountOverflowWarning = useMemo(() => {
-    if (!amount || !walletsData?.wallets || walletsData.totalNetWorth === undefined) return null;
+    if (!amount || !walletsData?.wallets || walletsData.totalLiquidity === undefined) return null;
 
     const amountNum = parseFloat(amount);
     if (isNaN(amountNum)) return null;
 
-    const netWorth = walletsData.totalNetWorth;
+    const liquidity = walletsData.totalLiquidity;
     const baseCurrency = walletsData.baseCurrency || 'USD';
     
     // Get the relevant wallet's currency for validation
@@ -710,20 +715,20 @@ function Transactions() {
       };
     }
 
-    // Check if transaction would cause net worth to exceed maximum
+    // Check if transaction would cause liquidity to exceed maximum
     if (transactionType === 'income' && walletId) {
-      const newNetWorth = netWorth + amountNum;
-      if (newNetWorth > MAX_AMOUNT) {
-        const maxAllowed = MAX_AMOUNT - netWorth;
+      const newLiquidity = liquidity + amountNum;
+      if (newLiquidity > MAX_AMOUNT) {
+        const maxAllowed = MAX_AMOUNT - liquidity;
         return {
-          type: 'networth_overflow',
+          type: 'liquidity_overflow',
           maxAllowed,
           currency: baseCurrency,
-          currentNetWorth: netWorth
+          currentLiquidity: liquidity
         };
       }
     } else if (transactionType === 'transfer' && toWalletId) {
-      // Transfers don't change net worth, but check if destination wallet exists
+      // Transfers don't change liquidity, but check if destination wallet exists
       const selectedWallet = walletsData.wallets.find(w => w.id.toString() === toWalletId);
       if (selectedWallet) {
         const newWalletBalance = selectedWallet.current_balance + amountNum;
@@ -745,7 +750,7 @@ function Transactions() {
 
   // Calculate dynamic max amount for NumberInput (prevents clamping to wrong value on blur)
   const maxAllowedAmount = useMemo(() => {
-    if (!walletsData?.wallets || walletsData.totalNetWorth === undefined) return MAX_AMOUNT;
+    if (!walletsData?.wallets || walletsData.totalLiquidity === undefined) return MAX_AMOUNT;
 
     // Get the relevant wallet's currency
     let walletCurrency = walletsData.baseCurrency || 'USD';
@@ -1508,16 +1513,42 @@ function Transactions() {
 
   // Get drawer title based on mode and transaction type
   const drawerTitle = useMemo(() => {
-    if (!editMode) return 'Add new transaction';
-    if (transactionType === 'income') return 'Edit Income';
-    if (transactionType === 'expense') return 'Edit Expense';
-    return 'Edit Transfer';
+    if (!editMode) {
+      return (
+        <Group gap="xs">
+          <IconReceipt size={20} color="var(--blue-9)" />
+          <Text>Add new transaction</Text>
+        </Group>
+      );
+    }
+    if (transactionType === 'income') {
+      return (
+        <Group gap="xs">
+          <IconTrendingUp size={20} color="var(--blue-9)" />
+          <Text>Edit Income</Text>
+        </Group>
+      );
+    }
+    if (transactionType === 'expense') {
+      return (
+        <Group gap="xs">
+          <IconTrendingDown size={20} color="var(--blue-9)" />
+          <Text>Edit Expense</Text>
+        </Group>
+      );
+    }
+    return (
+      <Group gap="xs">
+        <IconArrowsExchange size={20} color="var(--blue-9)" />
+        <Text>Edit Transfer</Text>
+      </Group>
+    );
   }, [editMode, transactionType]);
 
-  // Get all visible transaction IDs for bulk delete
+  // Get all visible transaction IDs for bulk delete (exclude system transactions)
   const allVisibleTransactionIds = useMemo(() => {
-    return groupedTransactions.flatMap(group => 
-      group.transactions.map(t => t.id)
+    return groupedTransactions.flatMap(group =>
+      group.transactions.filter(t => !t.is_system).map(t => t.id)
     );
   }, [groupedTransactions]);
 
@@ -1661,17 +1692,64 @@ function Transactions() {
   // Stable base currency for TransactionFilters to prevent re-renders
   const baseCurrency = useMemo(() => totals.currency, [totals.currency]);
 
+  // Check if there are no active wallets (only archived)
+  const hasNoActiveWallets = walletsData && walletsData.wallets && walletsData.wallets.length === 0;
+
   return (
     <AppLayout>
-      <Stack style={{ position: 'relative', height: '100%' }}>
-        {/* Add Transaction Button */}
-        <Group justify="flex-end">
-          <Button
-            color="blue.9"
-            radius="sm"
-            leftSection={<IconCash size={18} />}
-            onMouseDown={createRipple}
-            onClick={() => {
+      {hasNoActiveWallets ? (
+        // Empty state when all wallets are archived
+        <Stack gap="lg" style={{ padding: '20px' }}>
+          {/* Show Summary Boxes with zeros */}
+          <TransactionSummaryBoxes
+            totals={{
+              income: 0,
+              expenses: 0,
+              net: 0
+            }}
+            isLoading={false}
+            baseCurrency={walletsData?.baseCurrency || 'USD'}
+          />
+
+          {/* Empty State Message */}
+          <Box
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minHeight: '400px',
+              padding: '40px',
+              textAlign: 'center'
+            }}
+          >
+            <Stack gap="lg" align="center">
+              <Stack gap="xs" align="center">
+                <Text size="sm">
+                  All wallets are archived.
+                </Text>
+                <Text size="sm">
+                  Restore a wallet to see its transactions.
+                </Text>
+              </Stack>
+              <ArchivedWalletsManager 
+                trigger="button"
+                buttonVariant="subtle"
+                buttonText="View Archived Wallets"
+              />
+            </Stack>
+          </Box>
+        </Stack>
+      ) : (
+        <Stack style={{ position: 'relative', height: '100%' }}>
+          {/* Add Transaction Button */}
+          <Group justify="flex-end">
+            <Button
+              color="blue.9"
+              radius="sm"
+              leftSection={<IconCash size={18} />}
+              onMouseDown={createRipple}
+              onClick={() => {
               setIdempotencyKey(uuidv4());
               setDrawerOpened(true);
             }}
@@ -1863,7 +1941,6 @@ function Transactions() {
           <Box 
             style={{ 
               backgroundColor: 'white', 
-              borderRadius: '8px', 
               width: '100%', 
               boxShadow: 'var(--mantine-shadow-sm)',
               padding: '12px 16px'
@@ -1883,7 +1960,7 @@ function Transactions() {
                 </Grid.Col>
               )}
               
-              <Grid.Col span={bulkDeleteMode ? 2.95 : 3}>
+              <Grid.Col span={bulkDeleteMode ? 2.95 : 3} style={{ paddingLeft: bulkDeleteMode ? '12px' : undefined }}>
                 <Text size="xs" fw={600} tt="uppercase" style={{ color: 'var(--gray-11)' }}>
                   Counterparty
                 </Text>
@@ -2197,7 +2274,8 @@ function Transactions() {
             </Stack>
           </Box>
         </Modal>
-      </Stack>
+        </Stack>
+      )}
     </AppLayout>
   );
 }

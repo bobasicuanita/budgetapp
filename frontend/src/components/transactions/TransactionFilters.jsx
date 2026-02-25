@@ -1,5 +1,5 @@
 import { useMemo, memo } from 'react';
-import { Button, Drawer, Stack, Text, NumberInput, Chip, Group, Select, MultiSelect, Badge, TextInput, Checkbox } from '@mantine/core';
+import { Button, Drawer, Stack, Text, NumberInput, Chip, Group, Select, MultiSelect, Badge, TextInput, Checkbox, Avatar, Box } from '@mantine/core';
 import { IconFilter } from '@tabler/icons-react';
 import PropTypes from 'prop-types';
 import { formatCurrency, ALL_CURRENCIES } from '../../data/currencies';
@@ -128,7 +128,12 @@ const TransactionFilters = memo(({
         opened={open}
         onClose={onClose}
         position="right"
-        title="Filter your transactions"
+        title={
+          <Group gap="xs">
+            <IconFilter size={20} color="var(--blue-9)" />
+            <Text>Filter your transactions</Text>
+          </Group>
+        }
         size="md"
       >
         <Stack gap="lg">
@@ -164,7 +169,8 @@ const TransactionFilters = memo(({
               placeholder="Select wallets"
               data={walletsData?.wallets?.map(wallet => ({
                 value: wallet.id.toString(),
-                label: `${wallet.icon} ${wallet.name} - ${formatCurrency(wallet.current_balance, wallet.currency)}`
+                label: wallet.name,
+                wallet: wallet
               })) || []}
               value={filterWallets}
               onChange={onWalletsChange}
@@ -172,6 +178,80 @@ const TransactionFilters = memo(({
               clearable
               className="text-input"
               size="sm"
+              styles={{
+                input: {
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
+                }
+              }}
+              renderOption={({ option }) => {
+                const wallet = option.wallet;
+                if (!wallet) return option.label;
+
+                // Get wallet initials for colored avatar fallback
+                const words = wallet.name.split(' ');
+                const initials = (words[0]?.charAt(0) || '') + (words[1]?.charAt(0) || '');
+
+                return (
+                  <Group gap="xs" wrap="nowrap" justify="space-between" style={{ width: '100%' }}>
+                    <Group gap="xs" wrap="nowrap" style={{ minWidth: 0, flex: 1, overflow: 'hidden' }}>
+                      {wallet.icon && (wallet.icon.startsWith('data:image') || wallet.icon.startsWith('http')) ? (
+                        <Box
+                          style={{
+                            width: '24px',
+                            height: '24px',
+                            borderRadius: '4px',
+                            overflow: 'hidden',
+                            border: '1px solid var(--gray-3)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0
+                          }}
+                        >
+                          <img 
+                            src={wallet.icon} 
+                            alt={wallet.name}
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              objectFit: 'contain'
+                            }}
+                          />
+                        </Box>
+                      ) : (
+                        <Avatar
+                          size="sm"
+                          radius="sm"
+                          color="white"
+                          style={{
+                            backgroundColor: `var(--${wallet.color}-9)`,
+                            flexShrink: 0
+                          }}
+                        >
+                          <Text size="xs">{initials}</Text>
+                        </Avatar>
+                      )}
+                      <Text 
+                        size="sm" 
+                        style={{ 
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          minWidth: 0,
+                          maxWidth: '120px'
+                        }}
+                      >
+                        {wallet.name}
+                      </Text>
+                    </Group>
+                    <Text size="sm" fw={600} c="gray.11" style={{ flexShrink: 0 }}>
+                      {formatCurrency(wallet.current_balance, wallet.currency)}
+                    </Text>
+                  </Group>
+                );
+              }}
             />
             <Text size="xs" c="gray.9" mt={4}>
               Show transactions from any of the selected wallets
@@ -197,10 +277,10 @@ const TransactionFilters = memo(({
               clearable
               className="text-input"
               size="sm"
-              disabled={filterTransactionTypes.includes('transfer')}
+              disabled={filterTransactionTypes.length === 1 && filterTransactionTypes[0] === 'transfer'}
             />
             <Text size="xs" c="gray.9" mt={4}>
-              Show transactions from any of the selected categories
+              Category filter only applies to income/expense transactions
             </Text>
           </div>
 
@@ -221,6 +301,7 @@ const TransactionFilters = memo(({
               clearable
               className="text-input"
               size="sm"
+              disabled={filterTransactionTypes.length === 1 && filterTransactionTypes[0] === 'transfer'}
             />
             {filterTags.length > 0 && (
               <Group gap="xs" mt="xs">
@@ -241,7 +322,7 @@ const TransactionFilters = memo(({
               </Group>
             )}
             <Text size="xs" c="gray.9" mt={4}>
-              Transactions must have ALL selected tags
+              Tag filter only applies to income/expense transactions
             </Text>
           </div>
 
@@ -304,9 +385,10 @@ const TransactionFilters = memo(({
               onChange={(e) => onCounterpartyChange(e.target.value)}
               className="text-input"
               size="sm"
+              disabled={filterTransactionTypes.length === 1 && filterTransactionTypes[0] === 'transfer'}
             />
             <Text size="xs" c="gray.9" mt={4}>
-              Search in merchant and counterparty fields
+              Merchant/source filter only applies to income/expense transactions
             </Text>
           </div>
 

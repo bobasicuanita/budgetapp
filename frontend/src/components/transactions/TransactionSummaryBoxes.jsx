@@ -38,13 +38,14 @@ const TransactionSummaryBoxes = ({ totals, isLoading, baseCurrency = 'USD' }) =>
           flex: 1,
           padding: '16px',
           borderRadius: '8px',
-          background: `white`,
+          background: 'white',
           border: '1px solid var(--gray-4)',
+          boxShadow: 'var(--mantine-shadow-md)'
         }}
       >
         <Group gap="xs" mb={4}>
           <Icon size={20} color={textColor} />
-          <Text size="xs" c="gray.9" fw={500}>
+          <Text size="xs" c="gray.11" fw={500}>
             {title}
           </Text>
         </Group>
