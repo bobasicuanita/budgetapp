@@ -14,7 +14,7 @@ import Wallets from '../pages/Wallets';
 import WalletDetails from '../pages/WalletDetails';
 import Transactions from '../pages/Transactions';
 // import Settings from '../pages/Settings';
-// import Budgets from '../pages/Budgets';
+import Budget from '../pages/Budget';
 // import NotFound from '../pages/NotFound';
 
 function AppRoutes() {
@@ -93,6 +93,17 @@ function AppRoutes() {
             <ProtectedRoute>
               <RequireOnboarding>
                 <Transactions />
+              </RequireOnboarding>
+            </ProtectedRoute>
+          } 
+        />
+
+        <Route 
+          path="/budget" 
+          element={
+            <ProtectedRoute>
+              <RequireOnboarding>
+                <Budget />
               </RequireOnboarding>
             </ProtectedRoute>
           } 

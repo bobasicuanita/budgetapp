@@ -14,7 +14,8 @@ import {
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconMenu2,
-  IconBell
+  IconBell,
+  IconReportMoney
 } from '@tabler/icons-react';
 import '../styles/navigation.css';
 
@@ -66,8 +67,9 @@ function AppLayout({ children }) {
 
   const navItems = [
     { label: 'Dashboard', icon: IconHome, path: '/dashboard' },
-    { label: 'Wallets', icon: IconWallet, path: '/wallets' },
     { label: 'Transactions', icon: IconReceipt, path: '/transactions' },
+    { label: 'Budget', icon: IconReportMoney, path: '/budget' },
+    { label: 'Wallets', icon: IconWallet, path: '/wallets' },
     { label: 'Reports', icon: IconChartBar, path: '/reports' },
     { label: 'Settings', icon: IconSettings, path: '/settings' },
   ];

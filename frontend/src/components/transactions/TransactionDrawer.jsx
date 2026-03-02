@@ -16,11 +16,15 @@ const TransactionDrawer = ({
   onClose,
   editMode,
   drawerTitle,
+  categoryTagWarning = false,
   
   // Transaction state
   transactionType,
   amount,
   category,
+  subcategory,
+  subcategories = [],
+  loadingSubcategories = false,
   walletId,
   fromWalletId,
   toWalletId,
@@ -34,12 +38,15 @@ const TransactionDrawer = ({
   // Transfer mode
   transferFromWallet,
   fromWalletDisabled = false, // If set, locks to transfer mode and hides type selector
+  toWalletDisabled = false, // If set, disables to_wallet selection for transfers
+  walletDisabled = false, // If set, disables wallet selection for income/expense
   
   // Transaction setters
   onTransactionTypeChange,
   onAmountChange,
   onAmountBlur,
   onCategoryChange,
+  onSubcategoryChange,
   onWalletIdChange,
   onFromWalletIdChange,
   onToWalletIdChange,
@@ -80,6 +87,7 @@ const TransactionDrawer = ({
   maxAllowedAmount,
   isOverdraftBlocked,
   hasChanges,
+  tagCategoryWarning = false,
   
   // Mutations
   isSubmitting,
@@ -244,7 +252,7 @@ const TransactionDrawer = ({
             className="text-input"
             searchable
             clearable
-            disabled={walletsLoading}
+            disabled={walletDisabled || walletsLoading}
             styles={{
               label: { fontSize: '12px', fontWeight: 500 },
               input: {
@@ -547,7 +555,7 @@ const TransactionDrawer = ({
               className="text-input"
               searchable
               clearable
-              disabled={walletsLoading || !fromWalletId}
+              disabled={toWalletDisabled || walletsLoading || !fromWalletId}
               styles={{
                 label: { fontSize: '12px', fontWeight: 500 },
                 input: {
@@ -649,41 +657,102 @@ const TransactionDrawer = ({
 
         {/* Category - For Income/Expense only */}
         {(transactionType === 'income' || transactionType === 'expense') && (
-          <Select
-            label="Category"
-            placeholder={`Select ${transactionType} category`}
-            value={category}
-            onChange={onCategoryChange}
-            data={filteredCategories.map(cat => ({
-              value: cat.id.toString(),
-              label: cat.name,
-              category: cat
-            }))}
-            size="md"
-            className="text-input"
-            searchable
-            clearable
-            disabled={referenceLoading}
-            styles={{
-              label: { fontSize: '12px', fontWeight: 500 }
-            }}
-            renderOption={({ option }) => {
-              const category = option.category;
-              if (!category) return option.label;
-              
-              return (
-                <Group gap="xs" wrap="nowrap">
-                  <Text size="lg" style={{ flexShrink: 0 }}>
-                    {category.icon}
-                  </Text>
-                  <Text size="sm">
-                    {category.name}
-                  </Text>
-                </Group>
-              );
-            }}
-          />
+          <>
+            <Select
+              label="Category"
+              placeholder={`Select ${transactionType} category`}
+              value={category}
+              onChange={onCategoryChange}
+              data={filteredCategories.map(cat => ({
+                value: cat.id.toString(),
+                label: cat.name,
+                category: cat
+              }))}
+              size="md"
+              className="text-input"
+              searchable
+              clearable
+              disabled={referenceLoading}
+              styles={{
+                label: { fontSize: '12px', fontWeight: 500 }
+              }}
+              renderOption={({ option }) => {
+                const category = option.category;
+                if (!category) return option.label;
+                
+                return (
+                  <Group gap="xs" wrap="nowrap">
+                    <Text size="lg" style={{ flexShrink: 0 }}>
+                      {category.icon}
+                    </Text>
+                    <Text size="sm">
+                      {category.name}
+                    </Text>
+                  </Group>
+                );
+              }}
+            />
+            {editMode && tagCategoryWarning && (
+              <Text size="xs" c="orange.9" mt={4}>
+                Some tags were removed because they don&apos;t belong to this category.
+              </Text>
+            )}
+            {categoryTagWarning && (
+              <Text size="xs" c="red.7" mt={4}>
+                Some tags were removed because they don&apos;t belong to this category
+              </Text>
+            )}
+          </>
         )}
+
+        {/* Subcategory - For Income/Expense only, if category is selected */}
+        {(transactionType === 'income' || transactionType === 'expense') && category && (
+          <>
+            <Select
+              label={
+                <Group gap={8} wrap="nowrap">
+                  <Text size="xs" fw={500}>Subcategory (optional)</Text>
+                  <Badge size="xs" color="blue.9" c="blue.9" variant="light">Recommended</Badge>
+                  <Tooltip
+                    label={
+                      <div>
+                        <div>Selecting a subcategory allows the app to:</div>
+                        <div>- Show detailed category spending</div>
+                        <div>- Track budgets at subcategory level</div>
+                        <div>- Generate more accurate monthly insights</div>
+                      </div>
+                    }
+                    multiline
+                    w={280}
+                    withArrow
+                  >
+                    <IconInfoCircle size={14} color="var(--blue-9)" style={{ cursor: 'help' }} />
+                  </Tooltip>
+                </Group>
+              }
+              placeholder={loadingSubcategories ? "Loading..." : "Select subcategory"}
+              value={subcategory}
+              onChange={onSubcategoryChange}
+              data={subcategories.map(sub => ({
+                value: sub.id.toString(),
+                label: sub.name
+              }))}
+              size="md"
+              className="text-input"
+              searchable
+              clearable
+              disabled={referenceLoading || loadingSubcategories || subcategories.length === 0}
+              styles={{
+                label: { fontSize: '12px', fontWeight: 500 }
+              }}
+            />
+            <Text size="xs" c="blue.9" mt={4} style={{ fontStyle: 'italic' }}>
+              Recommended for better budgeting and reporting. Assign only if it matches the category.
+            </Text>
+          </>
+        )}
+
+
 
         {/* Tags - Only if category is selected */}
         {category && (
@@ -1107,6 +1176,7 @@ TransactionDrawer.propTypes = {
   onClose: PropTypes.func.isRequired,
   editMode: PropTypes.bool.isRequired,
   drawerTitle: PropTypes.node.isRequired,
+  categoryTagWarning: PropTypes.bool,
   transactionType: PropTypes.string.isRequired,
   amount: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
   category: PropTypes.string,
@@ -1155,6 +1225,7 @@ TransactionDrawer.propTypes = {
   maxAllowedAmount: PropTypes.number,
   isOverdraftBlocked: PropTypes.bool.isRequired,
   hasChanges: PropTypes.bool.isRequired,
+  tagCategoryWarning: PropTypes.bool,
   isSubmitting: PropTypes.bool.isRequired,
   onSubmit: PropTypes.func.isRequired,
   amountInputRef: PropTypes.object,
@@ -1166,6 +1237,8 @@ TransactionDrawer.propTypes = {
   baseCurrency: PropTypes.string,
   transferFromWallet: PropTypes.number,
   fromWalletDisabled: PropTypes.bool,
+  toWalletDisabled: PropTypes.bool,
+  walletDisabled: PropTypes.bool,
 };
 
 export default TransactionDrawer;

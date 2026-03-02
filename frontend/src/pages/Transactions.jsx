@@ -57,6 +57,9 @@ function Transactions() {
   const [amount, setAmount] = useState('');
   const [transactionType, setTransactionType] = useState('expense');
   const [category, setCategory] = useState(null);
+  const [subcategory, setSubcategory] = useState(null);
+  const [subcategories, setSubcategories] = useState([]);
+  const [loadingSubcategories, setLoadingSubcategories] = useState(false);
   const [walletId, setWalletId] = useState(null);
   const [fromWalletId, setFromWalletId] = useState(null);
   const [toWalletId, setToWalletId] = useState(null);
@@ -68,6 +71,8 @@ function Transactions() {
   const [description, setDescription] = useState('');
   const [showTagInput, setShowTagInput] = useState(false);
   const [tagSearchValue, setTagSearchValue] = useState('');
+  const [tagCategoryWarning, setTagCategoryWarning] = useState(false);
+  const [categoryTagsMap, setCategoryTagsMap] = useState({});
   
   // Exchange rate state
   const [exchangeRateInfo, setExchangeRateInfo] = useState(null);
@@ -399,6 +404,35 @@ function Transactions() {
       setManualExchangeRate('');
     }
   }, [drawerOpened, date, walletId, fromWalletId, toWalletId, transactionType, walletsData, checkExchangeRate]);
+
+  // Fetch subcategories when category changes
+  useEffect(() => {
+    const fetchSubcategories = async () => {
+      if (!category) {
+        setSubcategories([]);
+        setSubcategory(null);
+        return;
+      }
+
+      setLoadingSubcategories(true);
+      try {
+        const response = await authenticatedFetch(`/api/transactions/subcategories/${category}`);
+        if (response.ok) {
+          const data = await response.json();
+          setSubcategories(data.subcategories || []);
+        } else {
+          setSubcategories([]);
+        }
+      } catch (error) {
+        console.error('Error fetching subcategories:', error);
+        setSubcategories([]);
+      } finally {
+        setLoadingSubcategories(false);
+      }
+    };
+
+    fetchSubcategories();
+  }, [category]);
 
   // Create transaction mutation
   const createTransactionMutation = useMutation({
@@ -923,13 +957,52 @@ function Transactions() {
     setCounterparty('');
   };
 
-  // Handle category change and reset tags
+  // Handle category change and adjust tags
   const handleCategoryChange = (newCategory) => {
+    if (category) {
+      // Save current tags for the old category
+      setCategoryTagsMap(prev => ({
+        ...prev,
+        [category]: {
+          selectedTags,
+          customTags
+        }
+      }));
+    }
+  
+    // Get allowed system tag IDs for the new category
+    const allowedTagIds = referenceData?.categoryTagSuggestions
+      .filter(cts => cts.category_id?.toString() === (newCategory ?? '').toString())
+      .map(cts => cts.tag_id) || [];
+  
+    // Filter current selected tags: keep only system tags allowed in new category + all custom tags
+    const filteredSelectedTags = selectedTags.filter(tagId => allowedTagIds.includes(tagId));
+    const filteredCustomTags = customTags.filter(tag => {
+      const fullTag = referenceData.tags?.find(t => t.id === tag.id);
+      const isSystem = fullTag?.is_system;
+      return !isSystem || allowedTagIds.includes(tag.id);
+    });
+  
+    // Restore any previously saved tags for this new category that are not already selected
+    const restored = categoryTagsMap[newCategory] || { selectedTags: [], customTags: [] };
+  
+    const mergedSelectedTags = Array.from(new Set([...filteredSelectedTags, ...restored.selectedTags]));
+    const mergedCustomTags = Array.from(new Set([...filteredCustomTags, ...restored.customTags]));
+  
     setCategory(newCategory);
-    setSelectedTags([]);
-    setCustomTags([]);
-    setShowTagInput(false);
-    setTagSearchValue('');
+    setSubcategory(null);
+    setSelectedTags(mergedSelectedTags);
+    setCustomTags(mergedCustomTags);
+  
+    // Show warning if any system tag is not allowed in the new category
+    const hasSystemMismatch =
+      mergedSelectedTags.some(tagId => !allowedTagIds.includes(tagId)) ||
+      mergedCustomTags.some(tag => {
+        const fullTag = referenceData.tags?.find(t => t.id === tag.id);
+        return fullTag?.is_system && !allowedTagIds.includes(tag.id);
+      });
+  
+    setTagCategoryWarning(hasSystemMismatch);
   };
 
   // Handle from wallet change and reset to wallet
@@ -947,6 +1020,8 @@ function Transactions() {
     setAmount('');
     setTransactionType('expense');
     setCategory(null);
+    setSubcategory(null);
+    setSubcategories([]);
     setWalletId(null);
     setFromWalletId(null);
     setToWalletId(null);
@@ -962,6 +1037,7 @@ function Transactions() {
     setDescription('');
     setShowTagInput(false);
     setTagSearchValue('');
+    setTagCategoryWarning(false);
     setIdempotencyKey(null);
   };
 
@@ -1172,6 +1248,7 @@ function Transactions() {
       // For income/expense
       setWalletId(transaction.wallet_id.toString());
       setCategory(transaction.category_id.toString());
+      setSubcategory(transaction.subcategory_id ? transaction.subcategory_id.toString() : null);
       setMerchant(transaction.merchant || '');
       setCounterparty(transaction.counterparty || '');
       
@@ -1223,6 +1300,7 @@ function Transactions() {
         amount: Math.abs(transaction.amount).toString(),
         transactionType: transaction.type,
         category: transaction.category_id?.toString(),
+        subcategory: transaction.subcategory_id ? transaction.subcategory_id.toString() : null,
         walletId: transaction.wallet_id?.toString(),
         date: originalDateString,
         merchant: transaction.merchant || '',
@@ -1273,6 +1351,7 @@ function Transactions() {
     } else {
       transactionData.walletId = walletId;
       transactionData.category = category;
+      transactionData.subcategory = subcategory || null;
       
       // Add merchant for expenses only
       if (transactionType === 'expense' && merchant) {
@@ -1384,6 +1463,7 @@ function Transactions() {
       return (
         normalize(amount) !== normalize(originalValues.amount) ||
         normalize(category) !== normalize(originalValues.category || '') ||
+        normalize(subcategory) !== normalize(originalValues.subcategory || '') ||
         normalize(walletId) !== normalize(originalValues.walletId || '') ||
         currentDateString !== originalDateString ||
         normalize(merchant) !== normalize(originalValues.merchant || '') ||
@@ -1392,7 +1472,7 @@ function Transactions() {
         currentTagsString !== (originalValues.tags || '')
       );
     }
-  }, [editMode, originalValues, amount, category, walletId, fromWalletId, toWalletId, date, merchant, counterparty, description, selectedTags, customTags, transactionType]);
+  }, [editMode, originalValues, amount, category, subcategory, walletId, fromWalletId, toWalletId, date, merchant, counterparty, description, selectedTags, customTags, transactionType]);
 
   // Focus amount input when drawer opens
   useEffect(() => {
@@ -2137,6 +2217,10 @@ function Transactions() {
           transactionType={transactionType}
           amount={amount}
           category={category}
+          subcategory={subcategory}
+          subcategories={subcategories}
+          loadingSubcategories={loadingSubcategories}
+          onSubcategoryChange={setSubcategory}
           walletId={walletId}
           fromWalletId={fromWalletId}
           toWalletId={toWalletId}
@@ -2203,6 +2287,7 @@ function Transactions() {
           maxAllowedAmount={maxAllowedAmount}
           isOverdraftBlocked={isOverdraftBlocked}
           hasChanges={hasChanges}
+          tagCategoryWarning={tagCategoryWarning}
           isSubmitting={createTransactionMutation.isPending || updateTransactionMutation.isPending}
           onSubmit={handleTransactionSubmit}
           amountInputRef={amountInputRef}
@@ -2212,6 +2297,8 @@ function Transactions() {
           manualExchangeRate={manualExchangeRate}
           onManualExchangeRateChange={setManualExchangeRate}
           baseCurrency={walletsData?.baseCurrency || 'USD'}
+          walletDisabled={editMode && transactionType !== 'transfer'}
+          toWalletDisabled={false}
         />
 
         {/* Delete Confirmation Modal */}

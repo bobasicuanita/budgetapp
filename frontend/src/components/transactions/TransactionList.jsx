@@ -5,11 +5,11 @@ import PropTypes from 'prop-types';
 import { formatCurrency } from '../../data/currencies';
 
 // Memoized transaction item component to prevent unnecessary re-renders
-const TransactionItem = memo(({ transaction, isLastItem, onEdit, onDelete, baseCurrency, bulkDeleteMode, isSelected, onToggle }) => {
+const TransactionItem = memo(({ transaction, isLastItem, onEdit, onDelete, baseCurrency, bulkDeleteMode, isSelected, onToggle, hideWalletColumn, readOnly }) => {
   return (
     <div key={transaction.id}>
       <Accordion.Item value={transaction.id.toString()}>
-        <Accordion.Control>
+        <Accordion.Control style={{ cursor: readOnly ? 'default' : undefined }}>
           <Grid align="center" gutter="xs">
             {/* Checkbox for bulk delete - disabled for system transactions */}
             {bulkDeleteMode && (
@@ -33,7 +33,7 @@ const TransactionItem = memo(({ transaction, isLastItem, onEdit, onDelete, baseC
             )}
             
             {/* Merchant/Counterparty/Transfer Info */}
-            <Grid.Col span={bulkDeleteMode ? 2.95 : 3} style={{ paddingLeft: bulkDeleteMode ? '12px' : undefined }}>
+            <Grid.Col span={hideWalletColumn ? 4 : (bulkDeleteMode ? 2.95 : 3)} style={{ paddingLeft: bulkDeleteMode ? '12px' : undefined }}>
               <Text
                 size="sm"
                 fw={500} 
@@ -56,8 +56,8 @@ const TransactionItem = memo(({ transaction, isLastItem, onEdit, onDelete, baseC
               </Text>
             </Grid.Col>
 
-            {/* Category icon + name */}
-            <Grid.Col span={bulkDeleteMode ? 2.95 : 3}>
+            {/* Category icon + name + subcategory */}
+            <Grid.Col span={hideWalletColumn ? 4 : (bulkDeleteMode ? 2.95 : 3)}>
               <Group gap="xs" wrap="nowrap">
                 {transaction.type === 'transfer' ? (
                   <IconArrowsRightLeft size={18} style={{ color: 'var(--blue-9)' }} />
@@ -66,29 +66,49 @@ const TransactionItem = memo(({ transaction, isLastItem, onEdit, onDelete, baseC
                     {transaction.category_icon}
                   </Text>
                 ) : null}
-                <Text size="sm" fw={500} style={{ color: 'var(--gray-12)' }}>
-                  {transaction.category_name || 'Transfer'}
-                </Text>
+                <Box style={{ display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' }}>
+                  <Text size="sm" fw={500} style={{ color: 'var(--gray-12)', lineHeight: 1 }}>
+                    {transaction.category_name || 'Transfer'}
+                  </Text>
+
+                  {transaction.subcategory_name && (
+                    <>
+                      <Text size="xs" style={{ color: 'var(--gray-10)', lineHeight: 1 }}>
+                        •
+                      </Text>
+                      <Text size="xs" style={{ color: 'var(--gray-10)', lineHeight: 1 }}>
+                        {transaction.subcategory_name}
+                      </Text>
+                    </>
+                  )}
+                </Box>
               </Group>
             </Grid.Col>
 
             {/* Wallet name(s) */}
-            <Grid.Col span={bulkDeleteMode ? 2.95 : 3}>
-              <Text size="sm" fw={500} style={{ color: 'var(--gray-12)' }}>
-                {transaction.type === 'transfer' 
-                  ? `${transaction.wallet_name}, ${transaction.to_wallet_name}`
-                  : transaction.wallet_name
-                }
-              </Text>
-            </Grid.Col>
+            {!hideWalletColumn && (
+              <Grid.Col span={bulkDeleteMode ? 2.95 : 3}>
+                <Text size="sm" fw={500} style={{ color: 'var(--gray-12)' }}>
+                  {transaction.type === 'transfer' 
+                    ? `${transaction.wallet_name}, ${transaction.to_wallet_name}`
+                    : transaction.wallet_name
+                  }
+                </Text>
+              </Grid.Col>
+            )}
 
             {/* Amount */}
-            <Grid.Col span={3}>
+            <Grid.Col span={hideWalletColumn ? 4 : 3}>
               <Group gap={6} justify="flex-end" wrap="nowrap" style={{ marginRight: '16px' }}>
                 {transaction.exchange_rate_date && transaction.exchange_rate_date !== transaction.date && !transaction.manual_exchange_rate && (
                   <Tooltip label="Another close exchange rate was used for this transaction" position="top">
                     <IconAlertTriangle size={14} style={{ color: 'var(--orange-8)', flexShrink: 0 }} />
                   </Tooltip>
+                )}
+                {readOnly && (
+                  <Badge size="xs" color="gray" variant="light">
+                    Read-only
+                  </Badge>
                 )}
                 <Text 
                   size="sm" 
@@ -258,26 +278,46 @@ const TransactionItem = memo(({ transaction, isLastItem, onEdit, onDelete, baseC
                 {/* Actions - Hide for system transactions */}
                 {!transaction.is_system && (
                   <Group gap="xs">
-                    <Button
-                      variant="subtle"
-                      size="xs"
-                      color="blue.9"
-                      c="blue.9"
-                      leftSection={<IconEdit size={14} />}
-                      onClick={() => onEdit(transaction)}
-                    >
-                      Edit
-                    </Button>
-                    <Button
-                      variant="subtle"
-                      size="xs"
-                      color="red.9"
-                      c="red.9"
-                      leftSection={<IconTrash size={14} />}
-                      onClick={() => onDelete(transaction)}
-                    >
-                      Delete
-                    </Button>
+                    <Tooltip label="Restore this wallet to make changes" disabled={!readOnly} withArrow position="top">
+                      <Button
+                        variant="subtle"
+                        size="xs"
+                        color="blue.9"
+                        c={readOnly ? "gray.9" : "blue.9"}
+                        leftSection={<IconEdit size={14} style={readOnly ? { color: 'var(--gray-9)' } : undefined} />}
+                        onClick={() => onEdit(transaction)}
+                        disabled={readOnly}
+                        styles={readOnly ? {
+                          root: {
+                            color: 'var(--gray-9) !important',
+                            cursor: 'not-allowed',
+                            opacity: 0.6
+                          }
+                        } : undefined}
+                      >
+                        Edit
+                      </Button>
+                    </Tooltip>
+                    <Tooltip label="Restore this wallet to make changes" disabled={!readOnly} withArrow position="top">
+                      <Button
+                        variant="subtle"
+                        size="xs"
+                        color="red.9"
+                        c={readOnly ? "gray.9" : "red.9"}
+                        leftSection={<IconTrash size={14} style={readOnly ? { color: 'var(--gray-9)' } : undefined} />}
+                        onClick={() => onDelete(transaction)}
+                        disabled={readOnly}
+                        styles={readOnly ? {
+                          root: {
+                            color: 'var(--gray-9) !important',
+                            cursor: 'not-allowed',
+                            opacity: 0.6
+                          }
+                        } : undefined}
+                      >
+                        Delete
+                      </Button>
+                    </Tooltip>
                   </Group>
                 )}
               </Group>
@@ -305,10 +345,12 @@ TransactionItem.propTypes = {
   bulkDeleteMode: PropTypes.bool,
   isSelected: PropTypes.bool,
   onToggle: PropTypes.func,
+  hideWalletColumn: PropTypes.bool,
+  readOnly: PropTypes.bool,
 };
 
 // Memoized date group component
-const DateGroup = memo(({ group, onEdit, onDelete, baseCurrency, bulkDeleteMode, selectedTransactions, onToggleTransaction }) => {
+const DateGroup = memo(({ group, onEdit, onDelete, baseCurrency, bulkDeleteMode, selectedTransactions, onToggleTransaction, hideWalletColumn, readOnly }) => {
   // Check if this day has any transactions with exchange rate conversions
   const hasMultipleCurrencies = group.transactions.some(t => 
     t.type !== 'transfer' && 
@@ -317,7 +359,7 @@ const DateGroup = memo(({ group, onEdit, onDelete, baseCurrency, bulkDeleteMode,
   );
 
   return (
-    <div key={group.label}>
+    <div key={group.label} style={{ opacity: readOnly ? 0.7 : 1 }}>
       {/* Date header */}
       <Box 
         p="xs"
@@ -414,6 +456,8 @@ const DateGroup = memo(({ group, onEdit, onDelete, baseCurrency, bulkDeleteMode,
             bulkDeleteMode={bulkDeleteMode}
             isSelected={selectedTransactions.includes(transaction.id)}
             onToggle={onToggleTransaction}
+            hideWalletColumn={hideWalletColumn}
+            readOnly={readOnly}
           />
         ))}
       </Accordion>
@@ -436,6 +480,8 @@ DateGroup.propTypes = {
   bulkDeleteMode: PropTypes.bool,
   selectedTransactions: PropTypes.array,
   onToggleTransaction: PropTypes.func,
+  hideWalletColumn: PropTypes.bool,
+  readOnly: PropTypes.bool,
 };
 
 /**
@@ -453,7 +499,11 @@ const TransactionList = memo(({
   baseCurrency,
   bulkDeleteMode,
   selectedTransactions,
-  onToggleTransaction
+  onToggleTransaction,
+  hideWalletColumn,
+  emptyStateTitle,
+  emptyStateSubtitle,
+  readOnly
 }) => {
   if (transactionsLoading) {
     return (
@@ -467,11 +517,11 @@ const TransactionList = memo(({
     return (
       <Box style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--gray-9)' }}>
         <Text size="lg" fw={500} style={{ color: 'var(--gray-11)' }}>
-          {hasActiveFilters ? 'No transactions match the selected filters' : 'No transactions found'}
+          {hasActiveFilters ? 'No transactions match the selected filters' : (emptyStateTitle || 'No transactions found')}
         </Text>
         {!hasActiveFilters && (
           <Text size="sm" mt="xs" style={{ color: 'var(--gray-9)' }}>
-            Create your first transaction to get started
+            {emptyStateSubtitle || 'Create your first transaction to get started'}
           </Text>
         )}
       </Box>
@@ -491,6 +541,8 @@ const TransactionList = memo(({
             bulkDeleteMode={bulkDeleteMode}
             selectedTransactions={selectedTransactions}
             onToggleTransaction={onToggleTransaction}
+            hideWalletColumn={hideWalletColumn}
+            readOnly={readOnly}
           />
         ))}
       </Stack>
@@ -527,6 +579,10 @@ TransactionList.propTypes = {
   bulkDeleteMode: PropTypes.bool,
   selectedTransactions: PropTypes.array,
   onToggleTransaction: PropTypes.func,
+  hideWalletColumn: PropTypes.bool,
+  emptyStateTitle: PropTypes.string,
+  emptyStateSubtitle: PropTypes.string,
+  readOnly: PropTypes.bool,
 };
 
 export default TransactionList;

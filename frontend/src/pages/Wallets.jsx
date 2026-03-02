@@ -3,7 +3,7 @@ import { Text, Stack, Group, Loader, Accordion, Box, Avatar, ActionIcon, Button,
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Sparklines, SparklinesLine, SparklinesSpots } from 'react-sparklines';
+import { Sparklines, SparklinesLine } from 'react-sparklines';
 import { motion } from 'framer-motion';
 import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, Sector, Legend } from 'recharts';
 import { authenticatedFetch } from '../utils/api';
