@@ -518,6 +518,7 @@ router.get("/ids", authenticateToken, async (req, res) => {
  * - include_future (optional): Include future dated transactions (default: false)
  * - currency (optional): Filter by wallet currency code (matches source or destination wallet - OR logic)
  * - exclude_base_currency (optional): Exclude transactions in base currency, show only other currencies (default: false)
+ * - include_archived_wallet_transactions (optional): Include transactions from archived wallets (default: false, only used in wallet details view)
  * 
  * NOTE: For transfers, only one transaction per pair is returned (the "from" side with negative amount)
  */
@@ -540,7 +541,8 @@ router.get("/", authenticateToken, async (req, res) => {
     max_amount,
     include_future = 'false',
     currency,
-    exclude_base_currency = 'false'
+    exclude_base_currency = 'false',
+    include_archived_wallet_transactions = 'false'
   } = req.query;
 
   try {
@@ -665,9 +667,11 @@ router.get("/", authenticateToken, async (req, res) => {
     // For transfers, only show one transaction per pair (the "from" side with negative amount)
     queryParts.additional.push(`(t.type != 'transfer' OR t.amount < 0)`);
     
-    // Exclude transactions from archived wallets
-    queryParts.additional.push(`(w.is_archived = false OR w.is_archived IS NULL)`);
-    queryParts.additional.push(`(tw.is_archived = false OR tw.is_archived IS NULL OR t.to_wallet_id IS NULL)`);
+    // Exclude transactions from archived wallets (unless explicitly requested for wallet details view)
+    if (include_archived_wallet_transactions !== 'true') {
+      queryParts.additional.push(`(w.is_archived = false OR w.is_archived IS NULL)`);
+      queryParts.additional.push(`(tw.is_archived = false OR tw.is_archived IS NULL OR t.to_wallet_id IS NULL)`);
+    }
     
     // Exclude initial_balance system transactions (they're for internal bookkeeping only)
     queryParts.additional.push(`t.system_type IS DISTINCT FROM 'initial_balance'`);
@@ -691,6 +695,7 @@ router.get("/", authenticateToken, async (req, res) => {
         c.name as category_name,
         c.icon as category_icon,
         c.type as category_type,
+        sc.name as subcategory_name,
         tw.name as to_wallet_name,
         tw.icon as to_wallet_icon,
         tw.currency as to_wallet_currency,
@@ -742,6 +747,7 @@ router.get("/", authenticateToken, async (req, res) => {
       LEFT JOIN wallets w ON t.wallet_id = w.id
       LEFT JOIN wallets tw ON t.to_wallet_id = tw.id
       LEFT JOIN categories c ON t.category_id = c.id
+      LEFT JOIN subcategories sc ON t.subcategory_id = sc.id
       WHERE ${fullWhereClause}
       ORDER BY t.date DESC, t.created_at DESC
       LIMIT ${perPage}
@@ -888,7 +894,8 @@ router.get("/csv", authenticateToken, csvExportShortTermLimiter, csvExportLongTe
     max_amount,
     include_future = 'false',
     currency,
-    exclude_base_currency = 'false'
+    exclude_base_currency = 'false',
+    include_archived_wallet_transactions = 'false'
   } = req.query;
 
   try {
@@ -1011,9 +1018,11 @@ router.get("/csv", authenticateToken, csvExportShortTermLimiter, csvExportLongTe
     // For transfers, only show one transaction per pair
     queryParts.additional.push(`(t.type != 'transfer' OR t.amount < 0)`);
     
-    // Exclude transactions from archived wallets
-    queryParts.additional.push(`(w.is_archived = false OR w.is_archived IS NULL)`);
-    queryParts.additional.push(`(tw.is_archived = false OR tw.is_archived IS NULL OR t.to_wallet_id IS NULL)`);
+    // Exclude transactions from archived wallets (unless explicitly requested for wallet details view)
+    if (include_archived_wallet_transactions !== 'true') {
+      queryParts.additional.push(`(w.is_archived = false OR w.is_archived IS NULL)`);
+      queryParts.additional.push(`(tw.is_archived = false OR tw.is_archived IS NULL OR t.to_wallet_id IS NULL)`);
+    }
     
     const fullWhereClause = queryParts.additional.length > 0
       ? `${queryParts.baseWhere} AND ${queryParts.additional.join(' AND ')}`
@@ -1048,11 +1057,13 @@ router.get("/csv", authenticateToken, csvExportShortTermLimiter, csvExportLongTe
         t.*,
         w.name as wallet_name,
         c.name as category_name,
+        sc.name as subcategory_name,
         tw.name as to_wallet_name
       FROM transactions t
       LEFT JOIN wallets w ON t.wallet_id = w.id
       LEFT JOIN wallets tw ON t.to_wallet_id = tw.id
       LEFT JOIN categories c ON t.category_id = c.id
+      LEFT JOIN subcategories sc ON t.subcategory_id = sc.id
       WHERE ${fullWhereClause}
       ORDER BY t.date DESC, t.created_at DESC
     `);
@@ -1073,7 +1084,7 @@ router.get("/csv", authenticateToken, csvExportShortTermLimiter, csvExportLongTe
     // Build CSV content with proper formatting for both Excel and Google Sheets
     // Use comma delimiter (RFC 4180 standard) for universal compatibility
     // Use \r\n line endings (Windows standard)
-    const csvHeader = 'Date,Type,Category,Amount,Currency,Wallet,To Wallet,Merchant/Source,Description,Tags,System Type,Status,Created At\r\n';
+    const csvHeader = 'Date,Type,Category,Subcategory,Amount,Currency,Wallet,To Wallet,Merchant/Source,Description,Tags,System Type,Status,Created At\r\n';
     
     const csvRows = transactions.map(t => {
       // Get tags for this transaction
@@ -1105,6 +1116,7 @@ router.get("/csv", authenticateToken, csvExportShortTermLimiter, csvExportLongTe
         escapeCSV(t.date.toISOString().split('T')[0]), // Date
         escapeCSV(t.type), // Type
         escapeCSV(t.category_name || ''), // Category
+        escapeCSV(t.subcategory_name || ''), // Subcategory
         escapeCSV(Math.abs(t.amount)), // Amount (absolute value)
         escapeCSV(t.currency), // Currency
         escapeCSV(t.wallet_name || ''), // Wallet
@@ -1159,6 +1171,7 @@ router.post("/",
     fromWalletId,
     toWalletId,
     category,
+    subcategory,
     suggestedTags = [],
     customTags = [],
     date,
@@ -1492,6 +1505,25 @@ router.post("/",
           throw new Error(`Category type must match transaction type (${transactionType})`);
         }
 
+        // Validate subcategory if provided
+        if (subcategory) {
+          const [subcategoryData] = await sql`
+            SELECT id, category_id 
+            FROM subcategories 
+            WHERE id = ${subcategory}
+            AND (user_id = ${userId} OR user_id IS NULL)
+          `;
+
+          if (!subcategoryData) {
+            throw new Error("Subcategory not found");
+          }
+
+          // Ensure subcategory belongs to the same category as the transaction
+          if (subcategoryData.category_id !== category) {
+            throw new Error("Subcategory must belong to the same category as the transaction");
+          }
+        }
+
         // For expenses, check if wallet can be overdrawn (only cash wallets)
         if (transactionType === 'expense') {
           if (wallet.type === 'cash' && wallet.current_balance < amountValue) {
@@ -1517,12 +1549,12 @@ router.post("/",
         const [transaction] = await sql`
           INSERT INTO transactions (
             user_id, wallet_id, type, amount, currency, 
-            merchant, counterparty, description, category_id, date, is_system, status,
+            merchant, counterparty, description, category_id, subcategory_id, date, is_system, status,
             base_currency_amount, exchange_rate_date, exchange_rate_used, manual_exchange_rate
           )
           VALUES (
             ${userId}, ${walletId}, ${transactionType}, ${actualAmount}, 
-            ${wallet.currency}, ${merchant || null}, ${counterparty || null}, ${description || null}, ${category}, ${date}, false, 'actual',
+            ${wallet.currency}, ${merchant || null}, ${counterparty || null}, ${description || null}, ${category}, ${subcategory || null}, ${date}, false, 'actual',
             ${exchangeInfo.base_currency_amount}, ${exchangeInfo.exchange_rate_date}, 
             ${exchangeInfo.exchange_rate_used}, ${exchangeInfo.manual_exchange_rate}
           )
@@ -1864,6 +1896,7 @@ router.put("/:id",
     fromWalletId,
     toWalletId,
     category,
+    subcategory,
     suggestedTags = [],
     customTags = [],
     date,
@@ -2154,6 +2187,41 @@ router.put("/:id",
           throw new Error(`Transactions can't be dated before the wallet's starting balance (${formattedDate})`);
         }
 
+        // Validate category belongs to user or is system, and matches transaction type
+        const [categoryData] = await sql`
+          SELECT id, type 
+          FROM categories 
+          WHERE id = ${category} 
+          AND (user_id = ${userId} OR user_id IS NULL)
+        `;
+
+        if (!categoryData) {
+          throw new Error("Category not found");
+        }
+
+        if (categoryData.type !== oldTxn.type) {
+          throw new Error(`Category type must match transaction type (${oldTxn.type})`);
+        }
+
+        // Validate subcategory if provided
+        if (subcategory) {
+          const [subcategoryData] = await sql`
+            SELECT id, category_id 
+            FROM subcategories 
+            WHERE id = ${subcategory}
+            AND (user_id = ${userId} OR user_id IS NULL)
+          `;
+
+          if (!subcategoryData) {
+            throw new Error("Subcategory not found");
+          }
+
+          // Ensure subcategory belongs to the same category as the transaction
+          if (subcategoryData.category_id !== category) {
+            throw new Error("Subcategory must belong to the same category as the transaction");
+          }
+        }
+
         // Calculate actual amount based on type
         const actualAmount = oldTxn.type === 'expense' ? -amountValue : amountValue;
 
@@ -2190,6 +2258,7 @@ router.put("/:id",
             wallet_id = ${walletId},
             amount = ${actualAmount},
             category_id = ${category},
+            subcategory_id = ${subcategory || null},
             merchant = ${merchant || null},
             counterparty = ${counterparty || null},
             description = ${description || null},
@@ -2276,6 +2345,41 @@ router.put("/:id",
     
     res.status(500).json({ 
       error: error.message || "Failed to update transaction" 
+    });
+  }
+});
+
+/**
+ * GET /api/transactions/subcategories/:categoryId
+ * Get all subcategories for a specific category
+ * Returns both system subcategories and user-created subcategories
+ */
+router.get("/subcategories/:categoryId", authenticateToken, async (req, res) => {
+  const { categoryId } = req.params;
+  const userId = req.user.userId;
+
+  try {
+    // Get all subcategories for the category (system + user-created)
+    const subcategories = await sql`
+      SELECT 
+        id,
+        name,
+        category_id,
+        user_id,
+        (user_id IS NULL) as is_system
+      FROM subcategories
+      WHERE category_id = ${categoryId}
+        AND (user_id = ${userId} OR user_id IS NULL)
+      ORDER BY 
+        (user_id IS NULL) DESC, -- System subcategories first
+        name ASC
+    `;
+
+    res.json({ subcategories });
+  } catch (error) {
+    console.error("Error fetching subcategories:", error);
+    res.status(500).json({ 
+      error: "Failed to fetch subcategories" 
     });
   }
 });
