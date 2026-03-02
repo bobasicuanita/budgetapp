@@ -3,5 +3,6 @@
 /* Import reusable effects and components */
 @import './styles/ripple.css';
 @import './styles/inputs.css';
+@import './styles/sparkline.css'
 
 /* Add other global styles here if needed */

@@ -1,13 +1,22 @@
-import { AppShell, Group, NavLink, Text, Stack, Box, Menu, ActionIcon } from '@mantine/core';
-import { useDisclosure } from '@mantine/hooks';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
-import { useState, useEffect } from 'react';
-import { 
-  IconHome, 
-  IconWallet, 
-  IconChartBar, 
-  IconReceipt, 
+import {
+  AppShell,
+  Group,
+  NavLink,
+  Text,
+  Stack,
+  Box,
+  Menu,
+  ActionIcon,
+} from "@mantine/core";
+import { useDisclosure } from "@mantine/hooks";
+import { useNavigate, useLocation } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import {
+  IconHome,
+  IconWallet,
+  IconChartBar,
+  IconReceipt,
   IconSettings,
   IconLogout,
   IconUser,
@@ -15,16 +24,16 @@ import {
   IconLayoutSidebarLeftExpand,
   IconMenu2,
   IconBell,
-  IconReportMoney
-} from '@tabler/icons-react';
-import '../styles/navigation.css';
+  IconReportMoney,
+} from "@tabler/icons-react";
+import "../styles/navigation.css";
 
 function AppLayout({ children }) {
   const [mobileOpened, { toggle: toggleMobile }] = useDisclosure();
-  
+
   // Initialize sidebar state from localStorage, default to true (open)
   const [desktopOpened, setDesktopOpened] = useState(() => {
-    const saved = localStorage.getItem('sidebarOpen');
+    const saved = localStorage.getItem("sidebarOpen");
     return saved !== null ? JSON.parse(saved) : true;
   });
 
@@ -34,96 +43,105 @@ function AppLayout({ children }) {
 
   // Save sidebar state to localStorage whenever it changes
   useEffect(() => {
-    localStorage.setItem('sidebarOpen', JSON.stringify(desktopOpened));
+    localStorage.setItem("sidebarOpen", JSON.stringify(desktopOpened));
   }, [desktopOpened]);
 
   const toggleDesktop = () => {
-    setDesktopOpened(prev => !prev);
+    setDesktopOpened((prev) => !prev);
   };
 
   const handleLogout = async () => {
     try {
       // Call logout API
-      await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/auth/logout`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
-        }
-      });
+      await fetch(
+        `${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api/auth/logout`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
+          },
+        },
+      );
     } catch (error) {
-      console.error('Logout error:', error);
+      console.error("Logout error:", error);
     } finally {
       // Clear local storage
-      localStorage.removeItem('accessToken');
-      
+      localStorage.removeItem("accessToken");
+
       // Clear all React Query cache
       queryClient.clear();
-      
+
       // Redirect to login
-      navigate('/login');
+      navigate("/login");
     }
   };
 
   const navItems = [
-    { label: 'Dashboard', icon: IconHome, path: '/dashboard' },
-    { label: 'Transactions', icon: IconReceipt, path: '/transactions' },
-    { label: 'Budget', icon: IconReportMoney, path: '/budget' },
-    { label: 'Wallets', icon: IconWallet, path: '/wallets' },
-    { label: 'Reports', icon: IconChartBar, path: '/reports' },
-    { label: 'Settings', icon: IconSettings, path: '/settings' },
+    { label: "Dashboard", icon: IconHome, path: "/dashboard" },
+    { label: "Transactions", icon: IconReceipt, path: "/transactions" },
+    { label: "Budget", icon: IconReportMoney, path: "/budget" },
+    { label: "Wallets", icon: IconWallet, path: "/wallets" },
+    { label: "Reports", icon: IconChartBar, path: "/reports" },
+    { label: "Settings", icon: IconSettings, path: "/settings" },
   ];
 
   return (
     <AppShell
       navbar={{
         width: desktopOpened ? 220 : 70,
-        breakpoint: 'sm',
+        breakpoint: "sm",
         collapsed: { mobile: !mobileOpened },
       }}
       padding="md"
       styles={{
         main: {
-          backgroundColor: 'var(--gray-3)',
+          backgroundColor: "var(--gray-3)",
           paddingLeft: desktopOpened ? 220 : 70,
-          transition: 'padding-left 0.2s ease'
+          transition: "padding-left 0.2s ease",
         },
         navbar: {
-          backgroundColor: 'var(--gray-3)',
-          border: 'none',
-          transition: 'width 0.2s ease'
-        }
+          backgroundColor: "var(--gray-3)",
+          border: "none",
+          transition: "width 0.2s ease",
+          paddingBottom: "16px",
+        },
       }}
     >
       <AppShell.Navbar px="md">
         <Stack justify="space-between" h="100%">
           {/* Sidebar Header */}
           <Stack gap="md">
-            <Group gap="sm" my="sm" wrap="nowrap" ml={desktopOpened ? "6px" : "2px"}>
+            <Group
+              gap="sm"
+              my="sm"
+              wrap="nowrap"
+              ml={desktopOpened ? "6px" : "2px"}
+            >
               <ActionIcon
                 onClick={toggleMobile}
                 hiddenFrom="sm"
                 size="lg"
                 variant="subtle"
                 className="sidebar-toggle-icon"
-                style={{ color: 'var(--gray-12)' }}
+                style={{ color: "var(--gray-12)" }}
               >
                 <IconMenu2 size={20} />
               </ActionIcon>
               <ActionIcon
                 onClick={toggleDesktop}
                 visibleFrom="sm"
-                radius="md" 
+                radius="md"
                 size="lg"
                 variant="subtle"
                 color="gray.11"
                 className="sidebar-toggle-icon"
-                style={{ 
-                  color: 'var(--gray-12)', 
+                style={{
+                  color: "var(--gray-12)",
                   flexShrink: 0,
-                  backgroundColor: 'white',
-                  boxShadow: 'var(--mantine-shadow-sm)',
-                  marginTop: '4px'
+                  backgroundColor: "white",
+                  boxShadow: "var(--mantine-shadow-sm)",
+                  marginTop: "4px",
                 }}
               >
                 {desktopOpened ? (
@@ -132,16 +150,16 @@ function AppLayout({ children }) {
                   <IconLayoutSidebarLeftExpand size={20} />
                 )}
               </ActionIcon>
-              <Text 
-                fw={700} 
-                size="xl" 
-                style={{ 
-                  color: 'var(--blue-9)', 
-                  whiteSpace: 'nowrap',
+              <Text
+                fw={700}
+                size="xl"
+                style={{
+                  color: "var(--blue-9)",
+                  whiteSpace: "nowrap",
                   opacity: desktopOpened ? 1 : 0,
-                  width: desktopOpened ? 'auto' : 0,
-                  overflow: 'hidden',
-                  marginTop: '4px'
+                  width: desktopOpened ? "auto" : 0,
+                  overflow: "hidden",
+                  marginTop: "4px",
                 }}
               >
                 BudgetApp
@@ -153,10 +171,11 @@ function AppLayout({ children }) {
               {navItems.map((item) => {
                 // Check if current path matches the nav item
                 // For /wallets, also match /wallets/:id (detail pages)
-                const isActive = item.path === '/wallets' 
-                  ? location.pathname.startsWith('/wallets')
-                  : location.pathname === item.path;
-                  
+                const isActive =
+                  item.path === "/wallets"
+                    ? location.pathname.startsWith("/wallets")
+                    : location.pathname === item.path;
+
                 return (
                   <NavLink
                     key={item.path}
@@ -169,24 +188,26 @@ function AppLayout({ children }) {
                     }}
                     className="nav-menu-item"
                     style={{
-                      borderRadius: '8px',
-                      color: isActive ? 'var(--blue-9)' : undefined,
-                      justifyContent: desktopOpened ? 'flex-start' : 'center',
-                      backgroundColor: isActive ? 'white' : undefined,
-                      boxShadow: isActive ? 'var(--mantine-shadow-sm)' : undefined,
+                      borderRadius: "8px",
+                      color: isActive ? "var(--blue-9)" : undefined,
+                      justifyContent: desktopOpened ? "flex-start" : "center",
+                      backgroundColor: isActive ? "white" : undefined,
+                      boxShadow: isActive
+                        ? "var(--mantine-shadow-sm)"
+                        : undefined,
                     }}
                     styles={{
                       label: {
                         opacity: desktopOpened ? 1 : 0,
-                        width: desktopOpened ? 'auto' : 0,
-                        overflow: 'hidden',
-                        whiteSpace: 'nowrap'
+                        width: desktopOpened ? "auto" : 0,
+                        overflow: "hidden",
+                        whiteSpace: "nowrap",
                       },
                       ...(!desktopOpened && {
                         section: {
-                          marginRight: 0
-                        }
-                      })
+                          marginRight: 0,
+                        },
+                      }),
                     }}
                   />
                 );
@@ -201,25 +222,25 @@ function AppLayout({ children }) {
               leftSection={<IconBell size={20} stroke={1.5} />}
               onClick={() => {
                 // TODO: Handle notifications
-                console.log('Notifications clicked');
+                console.log("Notifications clicked");
               }}
               className="nav-menu-item"
               style={{
-                justifyContent: desktopOpened ? 'flex-start' : 'center',
-                borderRadius: '8px'
+                justifyContent: desktopOpened ? "flex-start" : "center",
+                borderRadius: "8px",
               }}
               styles={{
                 label: {
                   opacity: desktopOpened ? 1 : 0,
-                  width: desktopOpened ? 'auto' : 0,
-                  overflow: 'hidden',
-                  whiteSpace: 'nowrap'
+                  width: desktopOpened ? "auto" : 0,
+                  overflow: "hidden",
+                  whiteSpace: "nowrap",
                 },
                 ...(!desktopOpened && {
                   section: {
-                    marginRight: 0
-                  }
-                })
+                    marginRight: 0,
+                  },
+                }),
               }}
             />
 
@@ -230,22 +251,22 @@ function AppLayout({ children }) {
                   leftSection={<IconUser size={20} stroke={1.5} />}
                   className="nav-menu-item"
                   style={{
-                    borderRadius: '8px',
-                    justifyContent: desktopOpened ? 'flex-start' : 'center',
-                    cursor: 'pointer'
+                    borderRadius: "8px",
+                    justifyContent: desktopOpened ? "flex-start" : "center",
+                    cursor: "pointer",
                   }}
                   styles={{
                     label: {
                       opacity: desktopOpened ? 1 : 0,
-                      width: desktopOpened ? 'auto' : 0,
-                      overflow: 'hidden',
-                      whiteSpace: 'nowrap'
+                      width: desktopOpened ? "auto" : 0,
+                      overflow: "hidden",
+                      whiteSpace: "nowrap",
                     },
                     ...(!desktopOpened && {
                       section: {
-                        marginRight: 0
-                      }
-                    })
+                        marginRight: 0,
+                      },
+                    }),
                   }}
                 />
               </Menu.Target>
@@ -253,13 +274,13 @@ function AppLayout({ children }) {
               <Menu.Dropdown>
                 <Menu.Item
                   leftSection={<IconUser size={16} />}
-                  onClick={() => navigate('/profile')}
+                  onClick={() => navigate("/profile")}
                 >
                   Profile
                 </Menu.Item>
                 <Menu.Item
                   leftSection={<IconSettings size={16} />}
-                  onClick={() => navigate('/settings')}
+                  onClick={() => navigate("/settings")}
                 >
                   Settings
                 </Menu.Item>
@@ -271,8 +292,8 @@ function AppLayout({ children }) {
                   onClick={handleLogout}
                   styles={{
                     item: {
-                      color: 'var(--red-9)'
-                    }
+                      color: "var(--red-9)",
+                    },
                   }}
                 >
                   Logout
@@ -283,9 +304,7 @@ function AppLayout({ children }) {
         </Stack>
       </AppShell.Navbar>
 
-      <AppShell.Main>
-        {children}
-      </AppShell.Main>
+      <AppShell.Main>{children}</AppShell.Main>
     </AppShell>
   );
 }
